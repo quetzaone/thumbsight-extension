@@ -75,7 +75,6 @@
   margin: 2px 0 0;
 }
 
-.tv-tile-thumb-host { position: relative !important; isolation: isolate; }
 .tv-tile-save-btn {
   position: fixed;
   top: 8px;

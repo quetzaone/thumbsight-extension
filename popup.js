@@ -49,11 +49,16 @@ function renderLanguageMenu() {
     option.append(label);
     if (code === TVL.lang) option.append("✓");
     option.addEventListener("click", async () => {
-      await TVL.setLang(code);
+      // Отказ storage при сохранении языка не должен всплыть необработанным rejection.
+      await TVL.setLang(code).catch(() => {});
       menu.hidden = true;
       $("langButton").setAttribute("aria-expanded", "false");
       renderLanguageMenu();
-      await render();
+      // Полный render() здесь лишний: он заново спрашивал у фона сессию (с
+      // возможным refresh) и ошибку входа. Хватает перерисовать тексты —
+      // но сначала apply(): при отказе storage в setLang он не вызывался.
+      TVL.apply();
+      renderTexts();
     });
     menu.appendChild(option);
   }
@@ -68,35 +73,62 @@ function sendRuntimeMessage(message) {
   });
 }
 
-async function render() {
-  await TVL.ready;
-  TVL.apply();
+// Что показал последний render(): смена языка перерисовывает по нему тексты без
+// новых сообщений фону. apply() затирает #status и #bgStatus через data-i18n,
+// поэтому динамический текст надо помнить, а не читать из DOM.
+let shown = null;
+
+function renderTexts() {
   if (globalThis.TVI18N && typeof document.querySelector === "function") {
     const warning = document.querySelector(".warn[role='alert']");
     if (warning) warning.textContent = tvT("signOutWarn");
   }
+  if (!shown) return;
+  if (shown.error) {
+    text("status", shown.error);
+    text("bgStatus", shown.error);
+  } else if (shown.signedIn) {
+    text("who", shown.email);
+    text("bgStatus", tvT("ready"));
+  } else {
+    text("status", shown.oauthError || tvT("signInStatus"));
+  }
+}
+
+// #login скрыт разметкой до первого ответа фона (иначе вошедший видит кадр
+// «Sign in»); открывать его — только когда сессии нет или фон отказал.
+function showLogin() {
+  const el = $("login");
+  if (el) el.hidden = false;
+}
+
+async function render() {
+  await TVL.ready;
+  TVL.apply();
   renderLanguageMenu();
   const s = await SB.getSession();
   if (s) {
     setDisplay("login", "none");
     setDisplay("account", "block");
     const email = s.user?.email || "";
-    text("who", email);
     text("avatarInitial", (email.trim()[0] || "T").toUpperCase());
     if ($("siteLink")) {
       $("siteLink").href = window.THUMBVAULT_CONFIG.AUTH_SITE_URL || "https://thumbsight.com";
     }
-    const res = await sendRuntimeMessage({ type: "tv:ping" });
-    text("bgStatus", res.ok ? tvT("ready") : `${tvT("backgroundUnavailable")}: ${res.error || "unknown error"}`);
+    // Отдельный tv:ping не нужен: SB._send отклоняет промис при lastError и
+    // !ok, так что полученная сессия уже доказывает, что фон жив.
+    shown = { signedIn: true, email };
   } else {
+    showLogin();
     setDisplay("login", "block");
     setDisplay("account", "none");
     // Слот ошибки входа живёт там же, где сессия, а область выбирает
     // background (в Firefox это storage.session). Popup спрашивает текст
     // сообщением и сам storage не читает.
     const stored = await sendRuntimeMessage({ type: "tv:oauth-error" });
-    text("status", (stored.ok && stored.text) || tvT("signInStatus"));
+    shown = { signedIn: false, oauthError: (stored.ok && stored.text) || "" };
   }
+  renderTexts();
 }
 
 on("langButton", "click", (event) => {
@@ -120,7 +152,7 @@ on("loginBtn", "click", async () => {
     const res = await sendRuntimeMessage({ type: "tv:oauth-sign-in" });
     if (!res.ok) throw new Error(res.error || tvT("signInFailed"));
     text("status", tvT("signInStatus"));
-    render();
+    render().catch(tvRenderFailed);
   } catch (e) {
     text("status", e.message);
   } finally {
@@ -149,7 +181,12 @@ on("logoutBtn", "click", async () => {
   render();
 });
 
-render().catch((err) => {
-  text("status", err.message || String(err));
-  text("bgStatus", err.message || String(err));
-});
+// Без формы входа отказ фона оставил бы пустой popup: вход — единственное,
+// что пользователь может сделать отсюда. Один обработчик на все вызовы render().
+function tvRenderFailed(err) {
+  shown = { error: err.message || String(err) };
+  showLogin();
+  renderTexts();
+}
+
+render().catch(tvRenderFailed);

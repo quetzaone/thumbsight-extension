@@ -25,9 +25,13 @@ btn.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();
   if (!tvIsTrustedGesture(event, navigator.userActivation)) return;
-  if (hoverMedia) savePin(event, hoverMedia);
+  // Отсоединённый узел — карточка прежней страницы: сохранять её нельзя.
+  if (hoverMedia?.isConnected) savePin(event, hoverMedia);
 });
-btn.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+btn.addEventListener("mouseenter", () => {
+  clearTimeout(hideTimer);
+  hideTimer = null; // scheduleHide смотрит на hideTimer, чтобы не перевзводить таймер
+});
 btn.addEventListener("mouseleave", scheduleHide);
 
 function mediaSrc(media) {
@@ -35,11 +39,13 @@ function mediaSrc(media) {
   return media?.currentSrc || media?.src || "";
 }
 
-function isPinMedia(media) {
-  if (!media || !["IMG", "VIDEO"].includes(media.tagName)) return false;
-  if (!/i\.pinimg\.com/.test(mediaSrc(media))) return false;
+// Возвращает rect подходящего медиа или null: mediaAtPoint проверяет попадание
+// по этому же rect и не меряет узел второй раз (скан всей ленты в зазоре сетки).
+function pinMediaRect(media) {
+  if (!media || !["IMG", "VIDEO"].includes(media.tagName)) return null;
+  if (!/i\.pinimg\.com/.test(mediaSrc(media))) return null;
   const rect = media.getBoundingClientRect();
-  return rect.width >= PIN_MIN_WIDTH && rect.height >= PIN_MIN_HEIGHT;
+  return rect.width >= PIN_MIN_WIDTH && rect.height >= PIN_MIN_HEIGHT ? rect : null;
 }
 
 function mediaAtPoint(container, clientX, clientY) {
@@ -49,8 +55,8 @@ function mediaAtPoint(container, clientX, clientY) {
   ];
   candidates.sort((a, b) => Number(b.tagName === "VIDEO") - Number(a.tagName === "VIDEO"));
   return candidates.find((media) => {
-    if (!isPinMedia(media)) return false;
-    const rect = media.getBoundingClientRect();
+    const rect = pinMediaRect(media);
+    if (!rect) return false;
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }) || null;
 }
@@ -98,8 +104,14 @@ function positionBtn(media) {
 }
 
 function scheduleHide() {
-  clearTimeout(hideTimer);
+  // Уже скрыта (display и hoverMedia меняются только вместе) — иначе каждый
+  // кадр с мутациями взводил бы новый таймер впустую.
+  if (btn.style.display === "none" && !hoverMedia) return;
+  // Не перевзводить: при частых мутациях сброс таймера держал бы кнопку на
+  // старом пине до 280 мс тишины.
+  if (hideTimer) return;
   hideTimer = setTimeout(() => {
+    hideTimer = null;
     btn.style.display = "none";
     hoverMedia = null;
   }, 280);
@@ -107,12 +119,19 @@ function scheduleHide() {
 
 function refreshHoveredMedia() {
   refreshScheduled = false;
+  // Карточка ушла из DOM (SPA-переход, переиспользование): не позиционировать
+  // по нулевому rect и не оставлять старый пин под кликом.
+  if (hoverMedia && !hoverMedia.isConnected) {
+    btn.style.display = "none";
+    hoverMedia = null;
+  }
   if (!lastPointer) return;
   const target = document.elementFromPoint(lastPointer.x, lastPointer.y);
   const media = findPinMedia(target, lastPointer.x, lastPointer.y);
   if (media) {
     hoverMedia = media;
     clearTimeout(hideTimer);
+    hideTimer = null;
     positionBtn(media);
   } else if (target !== btn && !btn.contains(target)) {
     scheduleHide();
@@ -120,6 +139,9 @@ function refreshHoveredMedia() {
 }
 
 function scheduleRefresh() {
+  // Нет живой точки (до первого движения или курсор ушёл из окна) — мутации
+  // не должны гонять rAF и пересчёт по устаревшим координатам.
+  if (!lastPointer) return;
   if (refreshScheduled) return;
   refreshScheduled = true;
   requestAnimationFrame(refreshHoveredMedia);
@@ -129,6 +151,15 @@ document.addEventListener("pointermove", (event) => {
   if (event.isTrusted !== true) return;
   lastPointer = { x: event.clientX, y: event.clientY };
   scheduleRefresh();
+}, { capture: true, passive: true });
+
+// relatedTarget === null — курсор ушёл за окно (в iframe он не null): точку
+// забыть и кнопку спрятать, иначе она висит, а мутации пересчитывают пустое место.
+document.addEventListener("pointerout", (event) => {
+  if (event.isTrusted && !event.relatedTarget) {
+    lastPointer = null;
+    scheduleHide();
+  }
 }, { capture: true, passive: true });
 
 // Re-evaluate a stationary pointer when Pinterest swaps an image for a video

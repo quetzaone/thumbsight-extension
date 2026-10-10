@@ -3,6 +3,11 @@
 function getVideoId() {
   const u = new URL(location.href);
   if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/")[2];
+  // Эфиры YouTube держит в строке как /live/<id>, без ?v=; чужой сегмент не id.
+  if (u.pathname.startsWith("/live/")) {
+    const id = u.pathname.split("/")[2];
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+  }
   return u.searchParams.get("v");
 }
 
@@ -71,7 +76,7 @@ function removeBtn() {
 
 function ensureButton() {
   const isShorts = location.pathname.startsWith("/shorts/");
-  if (!/\/watch/.test(location.pathname) && !isShorts) {
+  if (!/\/watch/.test(location.pathname) && !location.pathname.startsWith("/live/") && !isShorts) {
     removeBtn();
     return;
   }
@@ -115,6 +120,4 @@ schedule();
 document.addEventListener("yt-navigate-finish", schedule);
 document.addEventListener("yt-page-data-updated", schedule);
 window.addEventListener("pageshow", schedule);
-setTimeout(schedule, 800);
-setTimeout(schedule, 1800);
-setTimeout(schedule, 3500);
+// Резервных setTimeout нет: наблюдатель за subtree уже ловит любую позднюю вставку.

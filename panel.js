@@ -110,9 +110,15 @@ document.addEventListener("keydown", (event) => {
   if (!$("tv-confirm").classList.contains("tv-hidden")) tvShow("tv-confirm", false);
   else tvClosePanel();
 });
-$("tv-overlay").addEventListener("click", (event) => { if (event.target === $("tv-overlay")) tvClosePanel(); });
+// Клик по подложке закрывает, только если и нажатие началось на ней же: при
+// протяжке выделения из поля за край карточки Chromium шлёт click общему
+// предку, то есть подложке, и заметка терялась (EXT-OPT-01 #42).
+let tvDownTarget = null;
+for (const id of ["tv-overlay", "tv-confirm"]) $(id).addEventListener("pointerdown", (event) => { tvDownTarget = event.target; });
+const tvBackdropClick = (id, event) => event.target === $(id) && tvDownTarget === $(id);
+$("tv-overlay").addEventListener("click", (event) => { if (tvBackdropClick("tv-overlay", event)) tvClosePanel(); });
 $("tv-confirm-cancel").addEventListener("click", () => tvShow("tv-confirm", false));
-$("tv-confirm").addEventListener("click", (event) => { if (event.target === $("tv-confirm")) tvShow("tv-confirm", false); });
+$("tv-confirm").addEventListener("click", (event) => { if (tvBackdropClick("tv-confirm", event)) tvShow("tv-confirm", false); });
 for (const tab of ["folders", "tags", "note"]) $("tv-tab-" + tab).addEventListener("click", () => tvSelectTab(tab));
 tvOnTrusted($("tv-delete"), () => tvShow("tv-confirm", true));
 tvOnTrusted($("tv-confirm-delete"), async () => {
@@ -335,7 +341,10 @@ async function tvStart() {
   tvRefreshLanguage();
   try { tvIntent = await tvClaimIntent(); }
   catch { tvFinish("expiredTitle", "expiredNote"); return; }
+  // Чип пуст и скрыт в разметке, пока claim не назвал источник: иначе первый
+  // кадр Pinterest-панели показывал YOUTUBE (EXT-OPT-01 #47).
   $("tv-source").textContent = tvIntent.mode === "pinterest" ? "PINTEREST" : "YOUTUBE";
+  tvShow("tv-source", true);
   if (!await SB.getSession()) { tvFinish("noSessionTitle", "noSessionNote"); return; }
   if (tvIntent.mode === "channel") tvRenderChannel(tvIntent); else await tvRenderSave(tvIntent);
 }

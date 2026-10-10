@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import vm from "node:vm";
 
 import intent from "../intent.js";
 
@@ -384,6 +385,20 @@ test("дизайн-контракт: icon-only триггеры без ложн�
     "YouTube trigger tracks the card below a global moving-preview layer");
   assert.match(channel, /document\.body\.appendChild\(tvTileButton\)/,
     "YouTube trigger is portaled above the moving-preview stacking context");
+  // EXT-OPT-01 #17/20: плитки не размечаются — кнопка fixed в body, метки никто не читал.
+  assert.doesNotMatch(css, /tv-tile-thumb-host/, "правило разметки плиток удалено");
+  assert.doesNotMatch(channel, /tvVideoTile|tv-tile-thumb-host/, "цикл разметки плиток удалён");
+  // EXT-OPT-01 #18/24: слушатели только запоминают точку, hit-test — раз в кадр.
+  for (const type of ["pointermove", "pointerover"]) {
+    const body = channel.match(new RegExp(`addEventListener\\("${type}", \\(event\\) => \\{([\\s\\S]*?)\\n\\}, \\{`))?.[1];
+    assert.ok(body, `${type}: слушатель найден`);
+    assert.doesNotMatch(body, /tvRefreshTileHover\(/, `${type}: без синхронного hit-test`);
+    assert.match(body, /tvScheduleTileHover\(\);/, `${type}: планирует кадр`);
+  }
+  assert.match(channel, /addEventListener\("scroll", tvScheduleTileHover,/, "scroll тоже через кадр");
+  assert.match(channel,
+    /function tvScheduleTileHover\(\) \{\s*if \(tvTileHoverScheduled\) return;\s*tvTileHoverScheduled = true;\s*requestAnimationFrame\(/,
+    "планировщик схлопывает события одного кадра флагом");
   assert.match(pinterest, /\["IMG", "VIDEO"\]/,
     "Pinterest supports both images and video posters");
   assert.match(pinterest, /addEventListener\("pointermove"/,
@@ -470,10 +485,47 @@ test("манифест не расширяет привилегии", () => {
 
   const war = manifest.web_accessible_resources;
   assert.equal(war.length, 1);
-  assert.deepEqual(war[0].resources.sort(), ["icons/*", "panel.html"]);
+  // EXT-OPT-01 #39: icons/* страницам не нужен — content scripts иконки не грузят.
+  assert.deepEqual(war[0].resources.sort(), ["panel.html"]);
   assert.deepEqual(war[0].matches.sort(), ["*://*.pinterest.com/*", "*://*.pinterest.ru/*", "*://*.youtube.com/*"]);
   const contentMatches = manifest.content_scripts.flatMap((e) => e.matches).sort();
   assert.deepEqual(war[0].matches.sort(), [...new Set(contentMatches)].sort(), "WAR не шире content scripts");
+  for (const name of new Set(manifest.content_scripts.flatMap((e) => [...e.js, ...(e.css || [])]))) {
+    assert.equal(read(name).includes("icons/"), false, `${name}: ссылается на icons/, а их нет в WAR`);
+  }
+
+  // EXT-OPT-01 #22: Music и Studio — без пользы для расширения, скрипты туда не внедряются.
+  const youtube = manifest.content_scripts.find((e) => e.matches.includes("*://*.youtube.com/*"));
+  assert.deepEqual([...youtube.exclude_matches].sort(), ["*://music.youtube.com/*", "*://studio.youtube.com/*"]);
+});
+
+test("YouTube: резервных таймеров нет, обнаружение держит наблюдатель (EXT-OPT-01 #19/26)", () => {
+  for (const name of ["content.js", "content-channel.js"]) {
+    const src = read(name);
+    assert.doesNotMatch(src, /setTimeout\((?:schedule|tvScheduleChannel)\b/, `${name}: резервный setTimeout`);
+    assert.match(src, /observe\(document, \{ subtree: true, childList: true \}\)/, `${name}: наблюдатель за subtree`);
+    assert.match(src, /addEventListener\("yt-navigate-finish"/, `${name}: SPA-переход`);
+  }
+});
+
+test("YouTube: /live/<id> распознаётся как видео (EXT-OPT-01 #41)", () => {
+  // Исполняем только getVideoId: ниже начинается DOM-обвязка, которой в vm нет.
+  const src = read("content.js");
+  const start = src.indexOf("function getVideoId(");
+  const end = src.indexOf("\nfunction makeButton(");
+  assert.ok(start >= 0 && end > start, "getVideoId отделён маркером makeButton");
+  const getVideoId = (href) => {
+    const context = vm.createContext({ URL, location: { href } });
+    vm.runInContext(src.slice(start, end), context);
+    return context.getVideoId();
+  };
+  assert.equal(getVideoId("https://www.youtube.com/live/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+  assert.equal(getVideoId("https://www.youtube.com/live/dQw4w9WgXcQ?si=x"), "dQw4w9WgXcQ");
+  assert.equal(getVideoId("https://www.youtube.com/live/not-an-id"), null);
+  assert.equal(getVideoId("https://www.youtube.com/live/"), null);
+  assert.equal(getVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+  assert.equal(getVideoId("https://www.youtube.com/shorts/dQw4w9WgXcQ"), "dQw4w9WgXcQ");
+  assert.match(src, /!location\.pathname\.startsWith\("\/live\/"\)/, "ensureButton пропускает /live/");
 });
 
 test("политика сообщений покрывает ровно обрабатываемые типы", () => {

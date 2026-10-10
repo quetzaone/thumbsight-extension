@@ -1,6 +1,5 @@
 :root {
   color-scheme: normal;
-  --bg: #0b0c0f;
   --surface: #141519;
   --surface-2: #191a20;
   --line: #24252c;
@@ -9,7 +8,6 @@
   --dim: #666b74;
   --accent: #2f6fed;
   --accent-hover: #4a80ff;
-  --ok: #59c2a4;
   --danger: #e5484d;
 }
 
@@ -46,7 +44,6 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
      Через CDP-снимки стендов это не видно. Статичная карточка слоем не
      становится, шва нет. Сторож — tests/pub02-note-update.test.mjs. */
 }
-@keyframes tv-pop { from { opacity: 0; transform: translateY(10px) scale(.965); } }
 
 .tv-modal-head {
   display: flex;
@@ -54,17 +51,6 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
   gap: 10px;
   padding: 16px 20px 12px;
 }
-.tv-brand {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border-radius: 9px;
-  background: rgba(47, 111, 237, .14);
-  color: #6ea0ff;
-}
-.tv-brand svg { width: 17px; height: 17px; fill: currentColor; }
 .tv-heading { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
 .tv-heading-canonical { flex-direction: row; align-items: center; gap: 10px; }
 .tv-heading strong { font-size: 15px; font-weight: 700; }
@@ -76,13 +62,7 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
   white-space: nowrap;
 }
 .tv-source-chip { padding: 2px 8px; border-radius: 999px; background: rgba(47,111,237,.16); color: #9dbfff !important; font: 10px/1 'Geist Mono', ui-monospace, monospace !important; letter-spacing: 1px; }
-.tv-lang { position: relative; }
-.tv-lang-button { height: 26px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 7px; background: rgba(255,255,255,.05); color: #c3c7ce; cursor: pointer; }
-.tv-lang-button:hover { background: rgba(255,255,255,.09); }
-.tv-lang-button svg, .tv-search svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.tv-lang-button span { font: 11px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .6px; }
-.tv-lang-menu { position: absolute; z-index: 6; top: 31px; right: 0; width: 136px; padding: 5px; border-radius: 10px; background: #1e222c; box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), 0 14px 34px rgba(0,0,0,.5); }
-.tv-lang-menu button { width: 100%; height: 30px; display: flex; align-items: center; border: 0; border-radius: 7px; background: transparent; color: #c3c7ce; cursor: pointer; text-align: left; }
+.tv-search svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .tv-x {
   width: 30px;
   height: 30px;
@@ -120,15 +100,8 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
   font-size: 12.5px;
   line-height: 1.45;
 }
-.tv-status.tv-ok,
 .tv-dup { border-color: rgba(89, 194, 164, .28); background: rgba(89, 194, 164, .08); color: #6bd6b4; }
 .tv-status.tv-err { border-color: rgba(229, 72, 77, .35); background: rgba(229, 72, 77, .1); color: #f2555a; }
-.tv-label {
-  color: var(--dim);
-  font: 10px/1 'Geist Mono', ui-monospace, monospace;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
 .tv-editor { display: flex; flex-direction: column; min-height: 190px; }
 .tv-tabs { display: flex; gap: 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
 .tv-tab { height: 36px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7b8492; font: 600 13px/1 'Instrument Sans', system-ui, sans-serif; cursor: pointer; }
@@ -172,17 +145,6 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
 .tv-note-foot { display: flex; justify-content: flex-end; }
 .tv-note-count { color: #6a7280; font: 11px/1 'Geist Mono', ui-monospace, monospace; }
 .tv-note-count.full { color: #f2555a; }
-.tv-add {
-  width: 38px;
-  flex: 0 0 38px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: #c3c7ce;
-  font-size: 17px;
-  cursor: pointer;
-}
-.tv-add:hover { border-color: var(--accent); color: var(--text); }
 
 .tv-actions {
   display: flex;
@@ -238,7 +200,9 @@ body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text)
   border-radius: 14px;
   background: var(--surface);
   box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
-  animation: tv-pop 220ms cubic-bezier(.32, .72, 0, 1) both;
+  /* Без анимации появления по той же причине, что и у .tv-modal (PUB-04):
+     анимированная карточка с тенью над blur-подложкой становится отдельным
+     слоем, и с `both` шов слоя виден навсегда (EXT-OPT-01 #46). */
 }
 .tv-danger-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: rgba(229, 72, 77, .12); color: #f2555a; }
 .tv-confirm-card strong { font-size: 14.5px; }

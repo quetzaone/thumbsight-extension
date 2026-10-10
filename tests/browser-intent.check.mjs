@@ -648,7 +648,13 @@ await channel.evaluate(() => {
 await channel.waitForFunction(() => {
   const host = document.querySelector("#video-tile ytd-thumbnail");
   const button = document.querySelector(".tv-tile-save-btn");
-  return host.classList.contains("tv-tile-thumb-host") && getComputedStyle(button).opacity === "1";
+  // Класс на хосте больше не ставится (и cloneNode копировал его — тавтология):
+  // проверяем саму кнопку — в body, видна, несёт id плитки и стоит над новым хостом.
+  const videoId = new URL(host.querySelector("a#thumbnail").href).searchParams.get("v");
+  return button.parentElement === document.body
+    && getComputedStyle(button).opacity === "1"
+    && button.dataset.videoId === videoId
+    && Math.abs(button.getBoundingClientRect().top - (host.getBoundingClientRect().top + 8)) <= 1;
 });
 check("YouTube trigger is restored after thumbnail replacement", true);
 const beforeFollow = mutationCount();

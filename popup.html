@@ -181,7 +181,8 @@
       </div>
     </header>
 
-    <section id="login" class="card">
+    <!-- hidden до ответа фона: вошедший не должен видеть кадр «Sign in»; снимает popup.js -->
+    <section id="login" class="card" hidden>
       <p id="logoutWarn" class="warn" role="alert" hidden>You are signed out on this device. We could not confirm that the server session ended, so it may still be active. Sign in and out again when you are back online; if you suspect stolen access, change your password in account settings.</p>
       <div class="login-copy" data-i18n="signInCopy">Sign in to save thumbnails straight from YouTube and Pinterest.</div>
       <button id="loginBtn" class="primary">
@@ -208,7 +209,7 @@
         <button id="logoutBtn" class="ghost" data-i18n="signOut">Sign out</button>
       </div>
     </section>
-    <footer class="version-footer"><span class="stamp">beta 2.9.2</span></footer>
+    <footer class="version-footer"><span class="stamp">beta 2.9.3</span></footer>
   </main>
 
   <script src="config.js"></script>

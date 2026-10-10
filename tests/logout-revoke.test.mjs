@@ -314,7 +314,9 @@ function oauthHarness(variant, fetchImpl, initialSession = session(), makeArea =
 
 // Полная цепочка: service worker (background.js + oauth.js) → runtime message →
 // supabase.js → popup.js с минимальным DOM-стабом.
-function chainHarness(variant, fetchImpl, initialSession = session()) {
+// `options.i18n` подставляет TVI18N с двумя языками: его apply(), как настоящий,
+// затирает #status и #bgStatus переводом из data-i18n.
+function chainHarness(variant, fetchImpl, initialSession = session(), options = {}) {
   const local = memoryArea(initialSession ? { tv_session: initialSession } : {});
   const calls = [];
   const { logs, console: consoleStub } = collector();
@@ -368,21 +370,36 @@ function chainHarness(variant, fetchImpl, initialSession = session()) {
       elements.set(id, {
         id,
         textContent: "",
-        // Зеркалит разметку: предупреждение по умолчанию скрыто.
-        hidden: id === "logoutWarn",
+        // Зеркалит разметку: предупреждение и форма входа по умолчанию скрыты.
+        hidden: id === "logoutWarn" || id === "login",
         disabled: false,
         value: "50",
         href: "",
         style: {},
+        children: [],
         classList: { toggle() {}, add() {}, remove() {} },
+        setAttribute() {},
+        appendChild(child) { this.children.push(child); },
         addEventListener(type, fn) { handlers.set(`${id}:${type}`, fn); },
       });
     }
     return elements.get(id);
   };
+  // Ровно то, что строит renderLanguageMenu: кнопка с подписью и обработчиком.
+  // Только с `options.i18n`: без него меню не строится, как и раньше.
+  const createElement = (tag) => ({
+    tag,
+    textContent: "",
+    children: [],
+    listeners: {},
+    setAttribute() {},
+    append(...nodes) { this.children.push(...nodes); },
+    addEventListener(type, fn) { this.listeners[type] = fn; },
+  });
 
+  const messages = [];
   const page = {
-    document: { getElementById: element },
+    document: options.i18n ? { getElementById: element, createElement } : { getElementById: element },
     chrome: {
       storage: { local },
       runtime: {
@@ -390,6 +407,7 @@ function chainHarness(variant, fetchImpl, initialSession = session()) {
         lastError: null,
         getURL: (path) => `chrome-extension://${EXT_ID}/${path}`,
         sendMessage: (message, callback) => {
+          messages.push(message.type);
           listener(message, { id: EXT_ID, url: `chrome-extension://${EXT_ID}/popup.html` }, callback);
         },
       },
@@ -401,6 +419,24 @@ function chainHarness(variant, fetchImpl, initialSession = session()) {
   };
   page.window = page;
   page.THUMBVAULT_CONFIG = CONFIG;
+  if (options.i18n) {
+    const i18n = {
+      LANGS: ["en", "ru"],
+      NAMES: { en: "English", ru: "Русский" },
+      lang: "en",
+      ready: Promise.resolve("en"),
+      t: (key) => `${i18n.lang}:${key}`,
+      apply() {
+        element("status").textContent = i18n.t("signInStatus");
+        element("bgStatus").textContent = i18n.t("ready");
+      },
+      async setLang(code) {
+        i18n.lang = code;
+        i18n.apply();
+      },
+    };
+    page.TVI18N = i18n;
+  }
   vm.createContext(page);
   vm.runInContext(src[variant].supabase, page, { filename: `${variant}/supabase.js` });
   vm.runInContext(src[variant].popup, page, { filename: `${variant}/popup.js` });
@@ -411,7 +447,13 @@ function chainHarness(variant, fetchImpl, initialSession = session()) {
     calls,
     logs,
     elements,
+    messages,
     click: (id) => handlers.get(`${id}:click`)(),
+    // Клик по последней построенной опции языка с этой подписью.
+    clickLang: (name) => element("langMenu").children
+      .filter((option) => option.children[0]?.textContent === name)
+      .at(-1)
+      .listeners.click(),
     install: async (reason) => {
       assert.ok(installListener, "background не зарегистрировал onInstalled listener");
       installListener({ reason });
@@ -677,6 +719,86 @@ for (const variant of VARIANTS) {
     assert.equal(result.remoteRevoked, false);
   });
 }
+
+// ── EXT-OPT-01: первый кадр popup и число сообщений фону ──────────────────
+//
+// Только public: правки popup.js (ids 4, 8/27/34) сделаны в нём, admin —
+// отдельный пакет и в этот срез не входит.
+
+const jsonResponse = (body) =>
+  new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+const expiredSession = () => session(REFRESH_TOKEN, Math.floor(Date.now() / 1000) - 10);
+const isRefresh = (url) => String(url).includes("/auth/v1/token");
+
+test("public: форма входа скрыта, пока фон не ответил, и у вошедшего не открывается (id 4)", async () => {
+  // Стаб берёт `hidden` у #login из разметки — значит, разметка обязана его нести.
+  assert.match(src.public.popupHtml, /<section id="login"[^>]*\shidden[\s>]/, "popup.html: #login без hidden");
+  const gate = deferred();
+  const h = chainHarness("public", (url) => (isRefresh(url) ? gate.promise : Promise.resolve(jsonResponse({}))), expiredSession());
+  const login = h.page.document.getElementById("login");
+  const account = h.page.document.getElementById("account");
+
+  // tv:sb-session висит на refresh: это и есть окно, в котором раньше был
+  // виден экран входа.
+  await waitFor(() => h.calls.some((call) => isRefresh(call.url)));
+  await settle();
+  assert.equal(login.hidden, true, "до ответа фона форма входа не открыта");
+  assert.notEqual(login.style.display, "block");
+  assert.notEqual(account.style.display, "block");
+
+  gate.resolve(jsonResponse(session("rotated")));
+  await settle();
+  assert.equal(account.style.display, "block");
+  assert.equal(login.hidden, true, "у вошедшего форма входа так и не открывалась");
+  assert.equal(login.style.display, "none");
+});
+
+test("public: отказ фона открывает форму входа, а не пустой popup (id 4)", async () => {
+  const h = chainHarness("public", async (url) => (isRefresh(url) ? new Response(null, { status: 503 }) : jsonResponse({})), expiredSession());
+  await settle();
+  const login = h.page.document.getElementById("login");
+  assert.equal(login.hidden, false, "войти должно быть можно и при отказе фона");
+  assert.notEqual(h.page.document.getElementById("account").style.display, "block");
+  assert.notEqual(h.elements.get("status").textContent, "", "отказ виден пользователю");
+});
+
+test("public: popup шлёт фону только нужные сообщения, без tv:ping (ids 8/27/34)", async () => {
+  const signedIn = chainHarness("public", chainFetch(respond(204)));
+  await settle();
+  assert.deepEqual(signedIn.messages, ["tv:sb-session"], "ответ tv:sb-session уже доказал, что фон жив");
+  assert.equal(signedIn.elements.get("bgStatus").textContent, "ready");
+  assert.equal(signedIn.elements.get("who").textContent, "user@example.com");
+
+  const signedOut = chainHarness("public", chainFetch(respond(204)), null);
+  await settle();
+  assert.deepEqual(signedOut.messages, ["tv:sb-session", "tv:oauth-error"]);
+  assert.equal(signedOut.elements.get("login").hidden, false);
+});
+
+test("public: смена языка перерисовывает тексты без новых сообщений фону (ids 8/27/34)", async () => {
+  const OAUTH_ERROR = "Sign-in window was closed";
+  const signedOut = chainHarness("public", chainFetch(respond(204)), null, { i18n: true });
+  signedOut.storage.tv_oauth_error = OAUTH_ERROR;
+  await settle();
+  assert.equal(signedOut.elements.get("status").textContent, OAUTH_ERROR);
+  const before = [...signedOut.messages];
+
+  await signedOut.clickLang("Русский");
+  await settle();
+  assert.equal(signedOut.page.TVI18N.lang, "ru");
+  assert.deepEqual(signedOut.messages, before, "смена языка не спрашивает фон заново");
+  // apply() затёр #status переводом из data-i18n — текст ошибки обязан вернуться.
+  assert.equal(signedOut.elements.get("status").textContent, OAUTH_ERROR);
+
+  const signedIn = chainHarness("public", chainFetch(respond(204)), session(), { i18n: true });
+  await settle();
+  assert.equal(signedIn.elements.get("bgStatus").textContent, "en:ready");
+  await signedIn.clickLang("Русский");
+  await settle();
+  assert.deepEqual(signedIn.messages, ["tv:sb-session"]);
+  assert.equal(signedIn.elements.get("bgStatus").textContent, "ru:ready");
+  assert.equal(signedIn.elements.get("who").textContent, "user@example.com");
+});
 
 // ── TASK-03 F-01: гонка авторитетных мутаций tv_session ────────────────────
 //

@@ -865,16 +865,60 @@ test("удаление и Follow не затронуты новым путём",
   assert.deepEqual(notePatches(stand), []);
 });
 
+// EXT-OPT-01 #42: протяжка выделения из поля за край карточки. Chromium шлёт
+// click общему предку — подложке; закрывать можно, только если и нажатие
+// началось на ней. Стенд событий не всплывает, поэтому pointerdown подаётся
+// прямо на подложку с target из поля, как его увидел бы её слушатель.
+test("подложка: нажатие в поле и отпускание на подложке не закрывает панель", async () => {
+  const stand = await panelStand({ mode: "pinterest", rows: [existingPin()] });
+  stand.setNote("несохранённая");
+  stand.$("tv-overlay").fire("pointerdown", { target: stand.$("tv-note-input") });
+  stand.$("tv-overlay").fire("click");
+  assert.deepEqual(closed(stand), [], "протяжка выделения закрыла панель");
+  assert.equal(stand.$("tv-note-input").value, "несохранённая");
+
+  // Контроль: нажатие и отпускание на самой подложке закрывают ровно один раз.
+  stand.$("tv-overlay").fire("pointerdown");
+  stand.$("tv-overlay").fire("click");
+  assert.deepEqual(closed(stand), ["tv:panel-close"]);
+});
+
+test("подложка подтверждения удаления: та же защита от протяжки", async () => {
+  const stand = await panelStand({ mode: "pinterest", rows: [existingPin()] });
+  stand.$("tv-delete").fire("click");
+  assert.equal(stand.$("tv-confirm").hidden(), false);
+  stand.$("tv-confirm").fire("pointerdown", { target: stand.$("tv-confirm-title") });
+  stand.$("tv-confirm").fire("click");
+  assert.equal(stand.$("tv-confirm").hidden(), false, "протяжка закрыла подтверждение");
+  stand.$("tv-confirm").fire("pointerdown");
+  stand.$("tv-confirm").fire("click");
+  assert.equal(stand.$("tv-confirm").hidden(), true);
+  assert.deepEqual(closed(stand), [], "закрытие подтверждения не закрывает панель");
+});
+
 
 // Сторож PUB-04 (10.10): у карточки .tv-modal нет анимации появления. Пока карточка
 // анимируется (opacity/transform), Chromium держит её с тенью отдельным композитным слоем,
 // и на реальном экране вокруг панели проступает прямоугольник слоя (с fill-mode both —
 // навсегда, с backwards — на время анимации); CDP-снимки стендов этого не видят, поэтому
 // регрессию ловит только эта статическая проверка.
-test("panel.css: карточка .tv-modal без анимации появления (шов слоя на реальном экране)", () => {
+// EXT-OPT-01 #46: та же логика для карточки подтверждения удаления — тень 80px над
+// blur-подложкой.
+test("panel.css: карточки .tv-modal и .tv-confirm-card без анимации появления (шов слоя на реальном экране)", () => {
   const css = readFileSync(tvResolvePath(import.meta.dirname, "..", "panel.css"), "utf8");
-  const block = css.match(/[.]tv-modal[ ]*[{][^}]*[}]/)?.[0] ?? "";
-  assert.ok(block.length > 0, "блок .tv-modal не найден");
-  assert.doesNotMatch(block, /animation[-a-z]*:/);
-  assert.doesNotMatch(block, /transition[-a-z]*:[^;]*(opacity|transform)/);
+  for (const card of ["tv-modal", "tv-confirm-card"]) {
+    const block = css.match(new RegExp(`[.]${card}[ ]*[{][^}]*[}]`))?.[0] ?? "";
+    assert.ok(block.length > 0, `блок .${card} не найден`);
+    assert.doesNotMatch(block, /animation[-a-z]*:/, `.${card}: анимация`);
+    assert.doesNotMatch(block, /transition[-a-z]*:[^;]*(opacity|transform)/, `.${card}: transition`);
+  }
+});
+
+test("panel.css: нет @keyframes без ссылок на них", () => {
+  const css = readFileSync(tvResolvePath(import.meta.dirname, "..", "panel.css"), "utf8")
+    .replace(/[/][*][\s\S]*?[*][/]/g, "");
+  for (const [, name] of css.matchAll(/@keyframes\s+([-\w]+)/g)) {
+    const uses = css.match(new RegExp(`animation(?:-name)?\\s*:[^;}]*\\b${name}\\b`, "g")) || [];
+    assert.ok(uses.length > 0, `@keyframes ${name} нигде не используется`);
+  }
 });

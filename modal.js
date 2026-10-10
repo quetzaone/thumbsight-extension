@@ -4,6 +4,7 @@
 let tvPanelHost = null;
 let tvPanelFrame = null;
 let tvPanelDialog = null;
+let tvPanelOpening = false;
 const tvPanelOrigin = new URL(chrome.runtime.getURL("/")).origin;
 
 function tvCloseEmbeddedPanel() {
@@ -122,35 +123,44 @@ const TV = {
   // не истекающий слой — isTrusted самого события.
   async openPanel(event, intent) {
     if (!tvIsTrustedGesture(event, null)) return false;
-
-    let result;
+    // Пока ответа на tv:open-intent нет, страница ещё не inert, и второй клик
+    // двойного клика на холодном worker чеканил второй intent и монтировал
+    // панель дважды (EXT-OPT-01 #1/#43). Callback sendMessage вызывается
+    // всегда, поэтому finally флаг не подвесит.
+    if (tvPanelOpening) return false;
+    tvPanelOpening = true;
     try {
-      result = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: "tv:open-intent", intent }, (response) => {
-          const runtimeError = chrome.runtime.lastError?.message || "";
-          resolve({ response, runtimeError });
+      let result;
+      try {
+        result = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({ type: "tv:open-intent", intent }, (response) => {
+            const runtimeError = chrome.runtime.lastError?.message || "";
+            resolve({ response, runtimeError });
+          });
         });
-      });
-    } catch (error) {
-      result = { response: null, runtimeError: error?.message || "" };
+      } catch (error) {
+        result = { response: null, runtimeError: error?.message || "" };
+      }
+      if (!result?.response?.ok || typeof result.response.nonce !== "string") {
+        const stale = /context invalidated|receiving end does not exist/i.test(result?.runtimeError || "");
+        TV.toast(
+          stale
+            ? TVI18N.t("stalePage")
+            : TVI18N.t("openFailed"),
+          "error"
+        );
+        return false;
+      }
+      try {
+        tvMountEmbeddedPanel(result.response.nonce);
+      } catch {
+        TV.toast(TVI18N.t("openFailed"), "error");
+        return false;
+      }
+      return true;
+    } finally {
+      tvPanelOpening = false;
     }
-    if (!result?.response?.ok || typeof result.response.nonce !== "string") {
-      const stale = /context invalidated|receiving end does not exist/i.test(result?.runtimeError || "");
-      TV.toast(
-        stale
-          ? TVI18N.t("stalePage")
-          : TVI18N.t("openFailed"),
-        "error"
-      );
-      return false;
-    }
-    try {
-      tvMountEmbeddedPanel(result.response.nonce);
-    } catch {
-      TV.toast(TVI18N.t("openFailed"), "error");
-      return false;
-    }
-    return true;
   },
 };
 

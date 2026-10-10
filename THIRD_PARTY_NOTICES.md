@@ -10,14 +10,14 @@
 
 ## 1. Встроенные SVG-иконки интерфейса
 
-Отдельных файлов у них нет: контуры вставлены прямо в разметку. Всего восемь
-inline-`<svg>` — пять в `popup.html`, три в `panel.html`.
+Отдельных файлов у них нет: контуры вставлены прямо в разметку. Всего семь
+inline-`<svg>` — пять в `popup.html`, два в `panel.html` (знак из `panel.html` убран в 2.9.3).
 
 Состав определён сверкой геометрии контуров с upstream-наборами:
 
 | Где | Иконка | Соответствие |
 |---|---|---|
-| `popup.html`, `panel.html` | фирменный знак, `viewBox 0 0 17.32 17.32` | **не** из Lucide/Feather |
+| `popup.html` | фирменный знак, `viewBox 0 0 17.32 17.32` | **не** из Lucide/Feather |
 | `popup.html` | `external-link` | контуры совпадают с upstream |
 | `popup.html` | `check` | контуры совпадают с upstream |
 | `popup.html` | `arrow-up-right` | контуры совпадают с upstream |

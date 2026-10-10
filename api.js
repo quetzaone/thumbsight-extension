@@ -79,6 +79,14 @@ function tvNormalizeThumbPayload({ video_id, img_url, source_url }) {
   };
 }
 
+// user id запоминается на жизнь панели: иначе каждое создание и сохранение
+// слало отдельный tv:sb-session перед POST (EXT-OPT-01 #28). null не
+// кешируется — вход после отказа подхватится. Смена аккаунта в открытой панели
+// упрётся в RLS, а не запишет в чужой аккаунт. supabase.js не трогаем: он
+// побайтово общий с admin-сборкой.
+let tvUid = null;
+const tvUserId = async () => tvUid || (tvUid = await SB.userId());
+
 const API = {
   // Список папок пользователя (RLS сам отфильтрует чужие).
   async getCollections() {
@@ -93,7 +101,7 @@ const API = {
   async createCollection(name) {
     name = tvCleanText(name, TV_LIMITS.collectionName);
     if (!name) throw new Error("Invalid collection name");
-    const uid = await SB.userId();
+    const uid = await tvUserId();
     try {
       const rows = await SB.rest("collections", {
         method: "POST",
@@ -113,7 +121,7 @@ const API = {
   async createTag(name) {
     name = tvCleanText(name, TV_LIMITS.collectionName);
     if (!name) throw new Error("Invalid tag name");
-    const uid = await SB.userId();
+    const uid = await tvUserId();
     try {
       const rows = await SB.rest("tags", {
         method: "POST",
@@ -149,7 +157,7 @@ const API = {
   // Pinterest (без video_id) — обычная вставка.
   async saveThumbnail({ video_id, img_url, source_url, note }) {
     const clean = tvNormalizeThumbPayload({ video_id, img_url, source_url });
-    const uid = await SB.userId();
+    const uid = await tvUserId();
     const body = {
       user_id: uid,
       img_url: clean.img_url,
@@ -261,7 +269,7 @@ const API = {
     );
     if (existing?.[0]) return { created: false, row: existing[0] };
 
-    const uid = await SB.userId();
+    const uid = await tvUserId();
     try {
       await SB.rest("channels?on_conflict=user_id,channel_id", {
         method: "POST",

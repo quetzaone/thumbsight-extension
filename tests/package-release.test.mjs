@@ -859,3 +859,13 @@ test("ни один запуск не напечатал ключ, его payloa
   assert.ok(transcripts.length >= 30, `запусков подозрительно мало: ${transcripts.length}`);
   for (const out of transcripts) assertNoLeak(out);
 });
+
+// Штамп версии в popup статичен и не читает манифест: при подъёме версии его
+// забывали (2.9.3 — ревью EXT-OPT-01). «beta 2.9.3» ⇐ version_name «2.9.3-beta».
+test("штамп версии в popup совпадает с manifest.version_name", () => {
+  const html = readFileSync(join(SRC, "popup.html"), "utf8");
+  const m = html.match(/<span class="stamp">([^<]+)<\/span>/);
+  assert.ok(m, "в popup.html нет <span class=\"stamp\">");
+  const [base, suffix] = String(MANIFEST.version_name).split("-");
+  assert.equal(m[1], `${suffix} ${base}`);
+});

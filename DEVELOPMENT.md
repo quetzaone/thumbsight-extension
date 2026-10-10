@@ -1,327 +1,100 @@
-# Thumb Sight public extension — локальная проверка и экспорт исходников
+# Development
 
-Документ описывает, как проверить расширение у себя на машине и как собрать
-самостоятельный public-only срез исходников. Он не требует ни каталогов
-владельца, ни соседнего admin-расширения, ни рабочего production-config.
+There is no build step. The files in this folder are the extension.
 
-## Что здесь есть и чего здесь нет
+## Requirements
 
-**Есть:** исходники публичного расширения, его Node-проверки, браузерные
-проверки и тул экспорта.
+- Node.js 20.15 or newer, with npm.
+- For browser checks only: Playwright's Chromium. System Chrome and Edge removed the command-line
+  flags for side-loading extensions, so the checks can't use them.
 
-**Нет и не будет:** admin-расширение (личная версия владельца), backend/БД,
-веб-платформа, настоящий `config.js`, история monorepo, готовый установочный
-ZIP. Установочный ZIP собирает упаковщик `node tools/package-release.mjs
---config <путь к config.js> --out <каталог-релиза>` (или `npm run package --
-...`): 23 runtime-файла из списка `RUNTIME`, сгенерированный `config.js`,
-`INSTALL.md`, `LICENSE` и `THIRD_PARTY_NOTICES.md` — 27 файлов, рядом `.sha256`
-и `.provenance.json`, а в `<каталог-релиза>/unpacked/` — то же содержимое ZIP в
-распакованном виде (из него обновляется постоянная папка загрузки). Указанный `config.js` не исполняется, а проверяется
-статически; в ZIP попадает новый файл, сериализованный только из проверенных
-публичных полей. Тесты и `tools/` в ZIP не входят и остаются в исходниках.
+## Tests
 
-`manifest.firefox.json` — **незавершённый порт**, не готовый XPI и не
-поддерживаемая конфигурация. Он лежит здесь потому, что его ветки уже есть в
-рабочем коде и покрыты `tests/firefox-port.test.mjs`. Ручной Firefox-стенд в
-этот срез не входит.
-
-Общий менеджер релизов monorepo (`extensions/manage.ps1`) здесь не применим:
-он пакует **обе** версии, включая admin. Пользоваться им для публичного
-выпуска не нужно.
-
-## Требования
-
-- **Node.js ≥ 20.15**. Проверено на 24.13.1; другие версии не проверялись.
-- **npm** (идёт с Node). Глобальные пакеты не нужны и не ставятся.
-- Для браузерных проверок — **Chromium от Playwright**, а не системный
-  браузер. Подробности и причина — в разделе «Браузерные проверки».
-
-Три разных числа, которые нельзя смешивать:
-
-| Что | Значение | Статус |
-|---|---|---|
-| Заявленный минимум самого расширения | Chrome **140** (`minimum_chrome_version`) | проверен 10.10: на 139 отказ по `minimum_chrome_version`, на 140 загрузка (`check:floor`) |
-| Браузер, на котором прогоны реально зелёные | **Chromium 151.0.7922.34** (сборка Playwright) | проверено |
-| Release gates совместимости | Chrome 140 positive / 139 negative, вход после обычного перезапуска | Chrome 140 positive / 139 negative — проведены (PASS); вход после обычного перезапуска — PASS на Chromium 140 (`check:restart`), на 151 стенд не воспроизводит (UNVERIFIED); отчёт `security/audit-2026-08-09/results/PUB-04-gates-report.md` |
-
-Baseline 140 теперь проверен реальным браузером; верхняя граница по номеру
-версии по-прежнему не утверждается.
-
-## Установка зависимостей разработки
-
-```
+```sh
 npm ci --ignore-scripts
-```
-
-`npm ci` ставит ровно то, что записано в `package-lock.json`, и не меняет его.
-`--ignore-scripts` — начальное положение: ни один пакет не выполняет свои
-install-скрипты. Для текущего набора (`playwright-core`, `pngjs`,
-`pixelmatch`) этого достаточно: браузер они не скачивают, потому что
-`playwright-core` его и не качает — он подключается к уже установленному.
-Если когда-нибудь появится зависимость, которой скрипты действительно нужны,
-это обсуждается отдельно, а не включается «на всякий случай».
-
-В расширение эти пакеты не попадают: они `devDependencies`.
-
-## Node-проверки
-
-```
 npm run test:public
 ```
 
-Это **обязательная** команда публичного среза. Она запускает весь Node-набор в
-области `public`: ни один тест не читает admin-расширение или SQL бэкенда.
+`--ignore-scripts` is on purpose: none of the dev dependencies (`playwright-core`, `pngjs`,
+`pixelmatch`) need install scripts, and none of them end up in the extension.
 
-Область выбирается явно, первым аргументом раннера, и другого способа нет:
+`npm test` runs the `internal` scope, which also checks the private admin build and the backend
+SQL. It only works inside the main Thumb Sight repository. Here, use `test:public`. Three tests
+that compare against those private parts are skipped in this scope.
 
-| Команда | Область | Где работает |
-|---|---|---|
-| `npm run test:public` | `public` | везде, включая чистый клон |
-| `npm test` | `internal` | только в monorepo владельца, рядом с `admin/` и `supabase/` |
+## Browser checks
 
-Неизвестное значение области раннер отклоняет до запуска тестов. В области
-`internal` отсутствие приватных соседей — это **падение**, а не тихий пропуск:
-monorepo не должен незаметно перестать проверять admin.
-
-Три проверки в области `public` помечаются пропущенными — те, что сверяют
-admin-вариант и SQL-миграции. Это контракты соседних пакетов, а не поведение
-расширения; копировать их сюда ради зелёного прогона нельзя. Всё поведение
-самого расширения, включая logout/revoke, PGRST303-восстановление и защиту
-носителя сессии, в области `public` проверяется полностью.
-
-## Браузерные проверки
-
-### Какой браузер брать
-
-**Нужен Chromium, который ставит Playwright. Системные Google Chrome и
-Microsoft Edge не подходят и взаимозаменяемыми не являются.** Они убрали
-CLI-флаги sideload, на которые опирается этот стенд, — это написано в
-[документации Playwright по расширениям](https://playwright.dev/docs/chrome-extensions):
-«Google Chrome and Microsoft Edge removed the command-line flags needed to
-side-load extensions, so use Chromium that comes bundled with Playwright».
-
-Наблюдение с этого проекта: на системном Chrome 153 прогон падает с
-`browserContext.waitForEvent: Timeout 20000ms exceeded while waiting for event
-"serviceworker"`, на Chromium 151 все проверки зелёные. Это наблюдение
-согласуется с документацией Playwright, но **само по себе не доказывает ни
-причину отказа, ни верхнюю границу по номеру версии**: конкретный механизм в
-этом проекте не устанавливался.
-
-Про Opera и прочие сборки на Chromium здесь ничего не проверялось — не
-подставляй их, пока не проверишь сам.
-
-### Как получить и как указать бинарник
-
-Путь передаётся переменной `TV_CHROME`. Проверки ничего не скачивают и не
-трогают твои настоящие браузерные профили.
-
-**Проверенная конфигурация:** `playwright-core` **1.62.0** (зафиксирован в
-`package-lock.json`) и Chromium **151.0.7922.34**, сборка Playwright
-`chromium-1234`. Версия в lockfile выбрана так, чтобы её собственный
-`browsers.json` указывал ровно на эту сборку: тогда установка по lockfile и
-установка браузера дают ту же пару, на которой прогоны зелёные.
-
-Скачать этот Chromium в кеш Playwright:
-
-```
+```sh
 npx playwright-core install chromium
 ```
 
-Эта команда в текущем проходе **не выполнялась** — прогоны шли на уже
-имевшейся на машине сборке `chromium-1234`. Что она скачает именно её,
-установлено чтением `node_modules/playwright-core/browsers.json` после
-`npm ci` (`chromium`, revision 1234, browserVersion 151.0.7922.34), а не
-запуском загрузки. Браузер ставится в кеш Playwright, не в систему:
-`~/.cache/ms-playwright` (Linux), `~/Library/Caches/ms-playwright` (macOS),
-`%LOCALAPPDATA%\ms-playwright` (Windows).
+Then point `TV_CHROME` at it and run a check:
 
-Путь к бинарнику удобнее не искать руками, а спросить у самой библиотеки —
-работает после `npm ci` на любой ОС:
-
-```
-node -e "console.log(require('playwright-core').chromium.executablePath())"
-```
-
-Дальше:
-
-```
-# Linux / macOS / Git Bash
+```sh
+# macOS, Linux, Git Bash
 TV_CHROME="$(node -e 'console.log(require("playwright-core").chromium.executablePath())')" npm run check:pub07
 ```
 
-```
+```powershell
 # PowerShell
 $env:TV_CHROME = (node -e "console.log(require('playwright-core').chromium.executablePath())")
 npm run check:pub07
 ```
 
-```
-:: cmd.exe
-for /f "delims=" %i in ('node -e "console.log(require('playwright-core').chromium.executablePath())"') do set TV_CHROME=%i
-npm run check:pub07
-```
+The pinned `playwright-core` 1.62.0 installs Chromium 151, which is what the checks pass on. Each
+check copies the extension to a temporary folder with a fake config, starts a throwaway profile
+and mocks YouTube, Pinterest and the backend. Your own browser profile is not touched.
 
-Можно указать и собственную сборку Chromium: `TV_CHROME` принимает любой путь.
-Системная установка для этого не нужна.
+| Script | What it checks |
+| --- | --- |
+| `check:intent` | buttons and panel on YouTube and Pinterest, and that a hostile page can't fake clicks or messages |
+| `check:pub01` | translating the extension UI doesn't touch the site's DOM |
+| `check:pub02` | retrying a failed save in the same panel |
+| `check:pub06` | a stuck view-count snapshot doesn't hold the panel open |
+| `check:pub07` | content scripts can't read the stored session |
+| `check:floor -- --expect loaded\|refused` | `minimum_chrome_version` (needs Chromium 140 / 139) |
+| `check:restart` | the session survives a browser restart |
+| `check:artifact` | a release ZIP: set `TV_ARTIFACT` to the packager's output folder |
 
-### Что именно проверяется
+## Running it from source
 
-Доступные проверки: `check:pub01` (DOM страницы-хозяина), `check:pub02`
-(повтор сохранения), `check:pub06` (бюджет snapshot), `check:pub07` (барьер
-storage), `check:intent` (границы intent).
-
-Проверки выпуска:
-
-- `check:floor -- --expect loaded|refused` — нижняя граница Chrome из
-  `minimum_chrome_version`. `loaded`: worker поднялся под ID из `manifest.key`
-  и отдаёт версию манифеста; `refused`: worker нет, и Chromium назвал причину —
-  требуемую версию (её текст берётся из stderr браузера, в
-  `chrome://extensions` несостоявшаяся загрузка не видна). `--min-chrome <N>`
-  меняет поле во временной копии — контрольная проба, что отказ вызван именно
-  им. Код выхода 3 — UNVERIFIED.
-- `check:restart` — сессия переживает обычный перезапуск браузера: расширение
-  ставится в профиль один раз через CDP `Extensions.loadUnpacked` (Chromium
-  запускается напрямую, `--remote-debugging-pipe`), второй запуск того же
-  профиля идёт без установки. Если Chromium не сохраняет такую установку
-  между запусками, вердикт UNVERIFIED (код 3), а не PASS.
-- `check:artifact` — smoke установочного ZIP: нужен `TV_ARTIFACT=<каталог
-  релиза упаковщика>`. Сверяет хеши ZIP, `.sha256` и provenance, разбирает ZIP
-  собственным читателем и сравнивает каждую запись с `unpacked/`; `config.js`
-  пакета проверяет только по форме и в браузер не грузит, а копию из байтов
-  ZIP с синтетическим config поднимает в Chromium (ID, версия, popup, иконка,
-  content script). Provenance сверяется с `manifest.json` репозитория: сборка
-  из чистого дерева (`sourceDirty` false, `worktreeFiles` пуст), `sourceCommit`
-  — 40 hex (равен `TV_EXPECT_COMMIT`, если он задан), та же `version` /
-  `version_name` и та же нижняя граница `minimum_chrome_version`.
-  `TV_SCREENSHOT_DIR` — куда сохранить снимок popup.
-
-Настоящий `config.js` они не читают: каждая проверка делает себе временную
-копию расширения по пофайловому списку и пишет туда синтетический config.
-
-Каждая проверка поднимает **собственный временный профиль** и удаляет его за
-собой. Твой обычный браузерный профиль и установленные расширения они не
-трогают.
-
-Трафик: YouTube, Pinterest и Supabase подменяются route-слоем, а
-`--host-resolver-rules=MAP * ~NOTFOUND` роняет разрешение имён для всего, что
-route-слой не перехватил. Отчёт «оборвано 0» означает, что **среди
-перехваченных route-слоем запросов** наружу не ушло ничего — это не измерение
-всего транспорта браузера и не доказательство, что живых запросов не было
-вообще.
-
-## Настройка config
-
-Тестам config не нужен — они делают синтетический сами. Он нужен только
-работающему расширению в браузере.
-
-```
-# Linux / macOS / Git Bash
-cp config.example.js config.js
+```sh
+cp config.example.js config.js     # PowerShell: Copy-Item config.example.js config.js
 ```
 
-```
-# PowerShell
-Copy-Item config.example.js config.js
-```
+Put the public Supabase anon key in `config.js`, or copy `config.js` from a release ZIP. Never put
+a `service_role` key or any other secret there: the browser reads this file. `config.js` is in
+`.gitignore`.
 
-Дальше впиши в `config.js` публичный anon-ключ Supabase. В шаблоне на его
-месте стоит `YOUR_SUPABASE_ANON_KEY`.
+Then open `chrome://extensions`, turn on Developer mode, click **Load unpacked** and pick this
+folder. After changing code, click Reload on the extension card and reload YouTube and Pinterest
+tabs.
 
-`config.js` в git не попадает (`.gitignore`). В него нельзя класть
-`service_role`, YouTube API key и любые токены деплоя: файл читается
-расширением в браузере.
+Don't change `manifest.key`. It fixes the extension ID, and sign-in is registered for that ID.
 
-## Загрузка расширения в браузер
+## Release ZIP
 
-1. `chrome://extensions` (Chrome), `edge://extensions`, `opera://extensions`.
-2. Включить «Режим разработчика».
-3. «Загрузить распакованное расширение» → выбрать каталог, в котором лежит
-   `manifest.json` (корень этого репозитория).
-4. После изменения кода — «Обновить» на карточке расширения и перезагрузка
-   открытых вкладок YouTube/Pinterest: старые content scripts сами не меняются.
-
-Это про **ручную** загрузку через интерфейс браузера — она работает и в Chrome,
-и в Edge; ограничение из раздела про harness касается только CLI-флагов
-sideload, которыми пользуется автоматический стенд. На каком минимальном
-Chrome расширение реально работает, остаётся непроверенным release gate.
-
-`manifest.key` менять нельзя: он определяет ID расширения, а ID связан с
-OAuth-настройкой. Версию тоже меняет только задача выпуска.
-
-## Экспорт public-only исходников
-
-```
-node tools/export-source.mjs ../my-public-export
+```sh
+node tools/package-release.mjs --config <path/to/config.js> --out <release-dir>
 ```
 
-Тул копирует **пофайловый список**, а не каталог целиком. Он отказывается
-писать в непустой каталог, отказывается писать внутрь исходников и падает,
-если хоть один файл списка пропал. `config.js`, `.env`, `node_modules`,
-`.git`, результаты прогонов и скриншоты в список не входят и не читаются.
+The packager reads the config without running it, checks that the key is a public anon key for
+this project, and writes a fresh `config.js` into the ZIP. The ZIP is deterministic. Next to it
+you get `.sha256`, `.provenance.json` and an `unpacked/` copy.
 
-Рядом с копией тул кладёт `SHA256SUMS.txt` — по нему проверяется, что байты
-совпали с исходным срезом, и `.gitignore`, который держит личный `config.js`
-вне публичного репозитория.
+## Source export
 
-Проверить целостность копии — одной командой, одинаково на любой ОС:
+This repository is exported from the main Thumb Sight repository file by file. The list is in
+`tools/runtime-files.mjs`.
 
-```
-npm run verify:sums                    # текущий каталог
-node tools/verify-sums.mjs ../my-public-export
+```sh
+node tools/export-source.mjs <empty-dir>
+npm run verify:sums                  # checks SHA256SUMS.txt in the current folder
 ```
 
-Тул сверяет **ожидаемый хеш из списка с фактическим** и завершается ненулевым
-кодом при любом расхождении: несовпал хеш, файл пропал, строка не того
-формата, путь недопустимый.
+`verify-sums` only reads files listed in `SHA256SUMS.txt`, refuses `config.js`, `.env*` and odd
+paths, and fails on any mismatch.
 
-### Что именно он соглашается прочитать
+## License
 
-Список хешей — это **ввод**: он может приехать из чужого архива. Поэтому
-строка в нём не превращается в открытие произвольного файла. Весь путь
-проверяется **до** чтения, и проверка закрывается отказом:
-
-- Каталог целиком **не обходится** — читается строго то, что перечислено.
-  `node_modules` и личный `config.js` под проверку не попадают, даже когда
-  лежат рядом.
-- Сначала проверяется выбранный каталог, затем сам `SHA256SUMS.txt`, затем
-  каждая запись.
-- `config.js` и `.env`/`.env.*` **не открываются никогда**, даже если кто-то
-  допишет их в список. Сравнение идёт **без учёта регистра** и без учёта
-  хвостовых точек и пробелов, которые Windows отбрасывает при открытии
-  файла: `CONFIG.JS`, `config.js.` и `.ENV.LOCAL` — тот же отказ.
-  `config.example.js` под запрет не попадает: это шаблон без ключа.
-- Каталог `backups` (и `backup`) запрещён **как сегмент на любом уровне** —
-  и в записи списка, и в пути самого выбранного каталога.
-- Путь обязан быть однозначным: отклоняются абсолютные формы, `..` и `.`,
-  обратные слэши, двоеточия (`a:b.txt` — это ADS, а не файл), хвостовые
-  точки и пробелы, зарезервированные имена устройств Windows (`NUL`,
-  `CON.txt`, `COM1`…), управляющие символы. Дубли ловятся и при разном
-  регистре — на Windows это один и тот же файл.
-- **Ссылки не раскрываются.** Если любой компонент пути — symlink или
-  junction, запись отклоняется по факту наличия ссылки; куда она ведёт, тул
-  не выясняет, потому что выяснить — значит уже посмотреть в чужую область.
-  Это относится и к самому `SHA256SUMS.txt`, и к выбранному каталогу.
-
-**Предел, который тул не закрывает:** подмену файла или превращение его в
-ссылку сторонним процессом между проверкой и чтением (TOCTOU). Модель —
-контролируемый локальный экспорт, а не защита от конкурентного атакующего на
-той же машине; такой сценарий не реализован и не проверялся.
-
-Границы проверены регрессией `tests/verify-sums.test.mjs`: она подменяет
-`readFileSync` внешним наблюдателем и убеждается, что у запрещённых записей
-нет не только успешного кода выхода, но и самого чтения. Настоящие
-`config.js`, `.env` и каталоги `backups` при этом не создаются и не
-открываются — запрещённые имена живут только строками в synthetic списке.
-
-`sha256sum -c SHA256SUMS.txt` даёт то же самое там, где эта утилита есть.
-PowerShell-команды вида `Get-FileHash -Recurse` для проверки **не годятся**:
-они печатают хеши, но ни с чем их не сравнивают, а обход каталога захватывает
-файлы, которых в списке нет.
-
-## Лицензия
-
-Собственный код расширения распространяется по лицензии **MIT** — текст в
-файле `LICENSE`, `package.json` объявляет `MIT`.
-
-Уведомления сторонних иконок — в `THIRD_PARTY_NOTICES.md`. Их лицензии
-относятся только к перечисленным там иконкам и не являются лицензией продукта.
+MIT, see `LICENSE`. Third-party icon notices are in `THIRD_PARTY_NOTICES.md`.

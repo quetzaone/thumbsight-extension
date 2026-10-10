@@ -5,11 +5,13 @@
 //   отказ storage/messaging даёт английский fallback, а не отказ TVI18N.ready;
 //   ни один путь не оставляет необработанного Promise rejection;
 //   background отдаёт ровно один валидированный код en/es/ru и ничего больше;
-//   сессия и Supabase-маршруты для host-страницы по-прежнему закрыты.
+//   сессия и Supabase-маршруты для host-страницы по-прежнему закрыты;
+//   словарь T и обращения к нему в runtime-файлах совпадают в обе стороны.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
+import { RUNTIME } from "../tools/runtime-files.mjs";
 
 const EXT_ID = "a".repeat(32);
 const YT_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
@@ -452,4 +454,45 @@ test("чужое расширение не получает даже язык", 
   const offHost = { id: EXT_ID, url: "https://evil.example/", tab: { id: 7 } };
   assert.deepEqual(plain(await bg.send({ type: "tv:lang" }, foreign)), { ok: false, error: "Blocked sender" });
   assert.deepEqual(plain(await bg.send({ type: "tv:lang" }, offHost)), { ok: false, error: "Blocked sender" });
+});
+
+// ------------------------------------------------------- словарь
+//
+// Мёртвый ключ грузится в каждую вкладку YouTube/Pinterest и правится
+// переводчиками впустую (EXT-OPT-01 id 7); ключ без перевода показывает
+// пользователю сырое имя. Формы обращений — все, что есть в runtime-файлах:
+// разметка, прямой вызов, выбор из двух ключей, dataset.i18n, исход панели
+// tvFinish и ключи пикера panel.js. Новая форма обращения обязана попасть сюда,
+// иначе её ключ этот тест сочтёт мёртвым.
+const KEY_REFS = [
+  /data-i18n(?:-placeholder|-title)?="(\w+)"/g,
+  /\b(?:t|tvT)\(\s*["'](\w+)["']\s*\)/g,
+  /\b(?:t|tvT)\([^()]*?\?\s*["'](\w+)["']\s*:\s*["'](\w+)["']\s*\)/g,
+  /\bdataset\.i18n(?:Placeholder|Title)?\s*=\s*["'](\w+)["']/g,
+  /\btvFinish\(\s*["'](\w+)["']\s*,\s*["'](\w+)["']/g,
+  /\b(?:emptyKey|createKey)\s*:\s*["'](\w+)["']/g,
+];
+
+test("каждый ключ словаря используется, и каждое обращение есть в словаре на en/es/ru", async () => {
+  // Словарь исполняется, а не разбирается построчно: так видны ровно те ключи,
+  // что получит t().
+  const body = src.i18n.match(/const T = (\{[\s\S]*?\n {2}\});/)?.[1];
+  assert.ok(body, "блок T не найден в i18n.js");
+  const T = vm.runInNewContext(`(${body})`);
+
+  const used = new Set();
+  const files = RUNTIME.filter((name) => /\.(js|html)$/.test(name) && name !== "i18n.js");
+  for (const name of files) {
+    const text = await file(name);
+    for (const re of KEY_REFS) {
+      for (const match of text.matchAll(re)) for (const key of match.slice(1)) used.add(key);
+    }
+  }
+
+  const dead = Object.keys(T).filter((key) => !used.has(key));
+  assert.deepEqual(dead, [], "ключи словаря, к которым нет обращений");
+  const missing = [...used].filter((key) => !Object.hasOwn(T, key));
+  assert.deepEqual(missing, [], "обращения к ключам, которых нет в словаре");
+  const untranslated = Object.keys(T).filter((key) => !["en", "es", "ru"].every((lang) => typeof T[key][lang] === "string" && T[key][lang]));
+  assert.deepEqual(untranslated, [], "ключи без перевода на en/es/ru");
 });

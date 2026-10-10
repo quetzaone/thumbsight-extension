@@ -393,9 +393,9 @@ document.addEventListener("tv:langchange", () => {
   }
 });
 
-// \u041a\u043d\u043e\u043f\u043a\u0430 \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435 \u043a\u0430\u043d\u0430\u043b\u0430 \u0431\u043e\u043b\u044c\u0448\u0435 \u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u0442 \u0438 \u043d\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442 \u0441\u0442\u0430\u0442\u0443\u0441
-// \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438: \u043e\u043d\u0430 \u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0442\u043a\u0440\u044b\u0432\u0430\u0435\u0442 extension-origin \u043f\u0430\u043d\u0435\u043b\u044c, \u0433\u0434\u0435 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c
-// \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0430\u0435\u0442 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 (EXT-001) \u0438 \u0433\u0434\u0435 \u043e\u0441\u0442\u0430\u044e\u0442\u0441\u044f \u043f\u0440\u0438\u0432\u0430\u0442\u043d\u044b\u0435 \u043e\u0442\u0432\u0435\u0442\u044b (EXT-002).
+// Кнопка на странице канала больше ничего не сохраняет и не показывает статус
+// подписки: она только открывает extension-origin панель, где пользователь
+// подтверждает действие (EXT-001) и где остаются приватные ответы (EXT-002).
 async function tvOnFollow(e) {
   e.preventDefault();
   e.stopPropagation();
@@ -570,34 +570,35 @@ function tvRefreshTileHover() {
   button.classList.add("tv-tile-save-btn-visible");
 }
 
+// Слушатели только запоминают точку: hit-test elementsFromPoint дорогой, а
+// pointerover+pointermove+scroll приходят по нескольку за кадр — считаем раз в кадр.
+let tvTileHoverScheduled = false;
+function tvScheduleTileHover() {
+  if (tvTileHoverScheduled) return;
+  tvTileHoverScheduled = true;
+  requestAnimationFrame(() => {
+    tvTileHoverScheduled = false;
+    tvRefreshTileHover();
+  });
+}
+
 document.addEventListener("pointermove", (event) => {
   if (event.isTrusted !== true) return;
   tvTilePointer = { x: event.clientX, y: event.clientY };
-  tvRefreshTileHover();
+  tvScheduleTileHover();
 }, { capture: true, passive: true });
 
 document.addEventListener("pointerover", (event) => {
   if (event.isTrusted !== true) return;
   tvTilePointer = { x: event.clientX, y: event.clientY };
-  tvRefreshTileHover();
+  tvScheduleTileHover();
 }, { capture: true, passive: true });
 
-window.addEventListener("scroll", tvRefreshTileHover, { passive: true });
+window.addEventListener("scroll", tvScheduleTileHover, { passive: true });
 
+// Плитки не размечаем: кнопка — position:fixed в body и ищет плитку под курсором
+// сама, а обход всех плиток на каждую мутацию был чистой тратой.
 function tvEnhanceVideoTiles() {
-  const tiles = document.querySelectorAll(TV_VIDEO_TILE_SELECTOR);
-
-  for (const tile of tiles) {
-    const thumb = tvFindTileThumb(tile);
-    const videoId = tvGetVideoIdFromUrl(thumb?.href || "");
-    if (!thumb || !videoId) continue;
-    const host = tvFindTileThumbHost(tile, thumb);
-    if (!host) continue;
-
-    tile.dataset.tvVideoTile = "1";
-    host.classList.add("tv-tile-thumb-host");
-  }
-
   tvEnsureTileButton();
 }
 
@@ -627,5 +628,4 @@ tvScheduleChannel();
 document.addEventListener("yt-navigate-finish", tvScheduleChannel);
 document.addEventListener("yt-page-data-updated", tvScheduleChannel);
 window.addEventListener("pageshow", tvScheduleChannel);
-setTimeout(tvScheduleChannel, 800);
-setTimeout(tvScheduleChannel, 1800);
+// Резервных setTimeout нет: наблюдатель за subtree уже ловит любую позднюю вставку.

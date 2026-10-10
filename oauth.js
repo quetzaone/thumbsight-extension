@@ -425,6 +425,7 @@ async function tvOAuthRefreshOnce(flight) {
   if (!session?.refresh_token) return null;
 
   const conf = self.THUMBVAULT_CONFIG;
+  const t0 = Date.now();
   const res = await fetch(`${conf.SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
     method: "POST",
     headers: {
@@ -442,8 +443,13 @@ async function tvOAuthRefreshOnce(flight) {
     throw new Error(`Session refresh temporarily unavailable (${res.status})`);
   }
 
-  const next = tvOAuthSession(await res.json().catch(() => null));
+  const raw = await res.json().catch(() => null);
+  const next = tvOAuthSession(raw);
   if (!next) throw new Error("Invalid session refresh response");
+  // Срок — по НАШИМ часам от момента запроса: серверный expires_at при часах ПК
+  // впереди уже «истёк», и refresh шёл бы перед каждым сообщением.
+  const ttl = Number(raw.expires_in);
+  if (Number.isFinite(ttl) && ttl > 0) next.expires_at = Math.floor(t0 / 1000) + ttl;
 
   // Не даём позднему ответу старого refresh перезаписать новый вход или logout.
   return await tvCommitRefresh(epoch, revision, next);
@@ -673,6 +679,7 @@ async function tvOAuthSignIn(clientId) {
     if (!/^[A-Za-z0-9_-]{32,256}$/.test(code)) throw new Error("Invalid authorization code");
 
     const conf = self.THUMBVAULT_CONFIG;
+    const t0 = Date.now();
     const exchange = await fetch(`${conf.SUPABASE_URL}/functions/v1/exchange`, {
       method: "POST",
       headers: { apikey: conf.SUPABASE_ANON_KEY, "Content-Type": "application/json" },
@@ -687,6 +694,9 @@ async function tvOAuthSignIn(clientId) {
     if (!exchange.ok) throw new Error(`Authorization failed: ${payload.error || exchange.status}`);
     const session = tvOAuthSession(payload);
     if (!session) throw new Error("Invalid session response");
+    // Как в refresh: срок от локального времени запроса, а не от часов сервера.
+    const ttl = Number(payload.expires_in);
+    if (Number.isFinite(ttl) && ttl > 0) session.expires_at = Math.floor(t0 / 1000) + ttl;
     // Авторитетный commit: сверка intent, снятие старой ошибки входа и запись
     // сессии — ОДНА сериализованная секция. Сериализованная, но не атомарная:
     // storage-операции внутри неё могут отказать по отдельности, поэтому важен
@@ -786,12 +796,8 @@ self.TV_SESSION_AREA = TV_SESSION_AREA;
 //
 // Одна проверка на активацию, и ОДИН предел ожидания на активацию.
 //
-// Предел заводится ЛЕНИВО — только когда кто-то действительно ждёт ещё не
-// завершившуюся проверку, — и снимается, как только она завершилась. Таймер при
-// загрузке модуля был бы виден всем: он тратится на каждую активацию, где его
-// никто не ждёт, и в стендах с управляемыми часами подмешивался бы в чужие
-// списки таймеров. Здесь же в штатном случае (`setAccessLevel` отвечает
-// микротаском) таймер не создаётся вовсе.
+// Предел заводится на старте активации (`tvArmCarrierDeadline`, вызов ниже) и
+// снимается завершением проверки.
 //
 // ponytail: 3000 ms — потолок ожидания, а не измеренная latency IPC. Ждёт его
 // только ПЕРВАЯ credential-операция активации; если окажется мало, поднимать
