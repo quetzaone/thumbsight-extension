@@ -1,0 +1,169 @@
+name: Safari test build (unsigned)
+
+# Experimental, see docs/safari-unsigned.md. Manual runs only.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safari-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  safari:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    env:
+      APP_NAME: Thumb Sight
+      BUNDLE_ID: com.thumbsight.extension
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          if xcrun --find safari-web-extension-packager >/dev/null 2>&1; then
+            echo "SWE_TOOL=safari-web-extension-packager" >> "$GITHUB_ENV"
+          elif xcrun --find safari-web-extension-converter >/dev/null 2>&1; then
+            echo "SWE_TOOL=safari-web-extension-converter" >> "$GITHUB_ENV"
+          else
+            echo "::error::neither safari-web-extension-packager nor -converter found in $(xcode-select -p)"
+            exit 1
+          fi
+          echo "WORK=$RUNNER_TEMP/safari" >> "$GITHUB_ENV"
+          echo "VERSION=$(node -p 'require("./manifest.json").version')" >> "$GITHUB_ENV"
+
+      # Fake key with the right shape for the packager. Backend calls fail on purpose.
+      - name: Synthetic config.js (outside the working tree)
+        run: |
+          mkdir -p "$WORK"
+          WORK="$WORK" node - <<'JS'
+          const fs = require("fs");
+          const crypto = require("crypto");
+          const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+          const url = manifest.host_permissions[0].replace(/\/\*$/, "");
+          const ref = new URL(url).hostname.split(".")[0];
+          const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+          const now = Math.floor(Date.now() / 1000);
+          const unsigned = b64({ alg: "HS256", typ: "JWT" }) + "." +
+            b64({ iss: "supabase", ref, role: "anon", iat: now, exp: now + 10 * 365 * 86400 });
+          const sig = crypto.createHmac("sha256", "synthetic-test-build-not-a-secret")
+            .update(unsigned).digest("base64url");
+          const key = unsigned + "." + sig;
+          fs.writeFileSync(process.env.WORK + "/config.js",
+            "(globalThis.window || globalThis).THUMBVAULT_CONFIG = {\n" +
+            `  SUPABASE_URL: "${url}",\n` +
+            `  SUPABASE_ANON_KEY: "${key}",\n` +
+            "};\n");
+          console.log("config.js written for", url);
+          JS
+
+      - name: Package with the same packager as the Chromium release
+        run: node tools/package-release.mjs --config "$WORK/config.js" --out "$WORK/release"
+
+      - name: Safari copy of the manifest (repository manifest.json is not changed)
+        run: |
+          cp -R "$WORK/release/unpacked" "$WORK/ext"
+          MANIFEST="$WORK/ext/manifest.json" node - <<'JS'
+          const fs = require("fs");
+          const p = process.env.MANIFEST;
+          const m = JSON.parse(fs.readFileSync(p, "utf8"));
+          delete m.key;                     // Chromium-only: fixed extension ID
+          delete m.minimum_chrome_version;  // Chromium-only
+          m.permissions = (m.permissions || []).filter((x) => x !== "identity"); // not supported by Safari
+          m.browser_specific_settings = { safari: { strict_min_version: "16.4" } }; // storage.session, userActivation
+          fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
+          JS
+          cat "$WORK/ext/manifest.json"
+
+      - name: Convert to an Xcode project
+        run: |
+          xcrun "$SWE_TOOL" "$WORK/ext" \
+            --project-location "$WORK/xcode" \
+            --app-name "$APP_NAME" \
+            --bundle-identifier "$BUNDLE_ID" \
+            --swift --macos-only --copy-resources --no-open --no-prompt --force \
+            2>&1 | tee "$WORK/converter.log"
+          PROJ="$(find "$WORK/xcode" -maxdepth 3 -name '*.xcodeproj' -print -quit)"
+          if [ -z "$PROJ" ]; then echo "::error::.xcodeproj not found"; exit 1; fi
+          echo "PROJ=$PROJ" >> "$GITHUB_ENV"
+          xcodebuild -list -json -project "$PROJ" > "$WORK/list.json"
+          cat "$WORK/list.json"
+          SCHEME="$(LIST="$WORK/list.json" APP="$APP_NAME" node -p '
+            const s = JSON.parse(require("fs").readFileSync(process.env.LIST, "utf8")).project.schemes;
+            s.includes(process.env.APP) ? process.env.APP : s.find((x) => !/Extension/i.test(x)) || s[0]')"
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
+          echo "project=$PROJ scheme=$SCHEME"
+          # The packager gives the app and the extension unrelated bundle ids and xcodebuild
+          # refuses that, so rename the extension id to <app id>.Extension.
+          APP_TARGET="$(LIST="$WORK/list.json" node -p '
+            const t = JSON.parse(require("fs").readFileSync(process.env.LIST, "utf8")).project.targets;
+            t.find((x) => !/Extension/i.test(x)) || t[0]')"
+          EXT_TARGET="$(LIST="$WORK/list.json" node -p '
+            const t = JSON.parse(require("fs").readFileSync(process.env.LIST, "utf8")).project.targets;
+            t.find((x) => /Extension/i.test(x)) || ""')"
+          bundle_id () { xcodebuild -showBuildSettings -project "$PROJ" -target "$1" -configuration Release 2>/dev/null \
+            | awk -F' = ' '/ PRODUCT_BUNDLE_IDENTIFIER /{print $2; exit}'; }
+          APP_ID="$(bundle_id "$APP_TARGET")"
+          EXT_ID="$(bundle_id "$EXT_TARGET")"
+          echo "app target=$APP_TARGET id=$APP_ID; extension target=$EXT_TARGET id=$EXT_ID"
+          case "$EXT_ID" in
+            "$APP_ID".*) echo "bundle ids already aligned" ;;
+            *) EXT_ID="$EXT_ID" NEW_ID="$APP_ID.Extension" perl -pi -e 's/\Q$ENV{EXT_ID}\E/$ENV{NEW_ID}/g' "$PROJ/project.pbxproj"
+               echo "patched extension bundle id: $EXT_ID -> $APP_ID.Extension" ;;
+          esac
+          { echo "## Converter output"; echo '```'; cat "$WORK/converter.log"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build (ad-hoc signed and unsigned)
+        run: |
+          mkdir -p "$WORK/out"
+          build () {
+            local mode="$1"; shift
+            if ! xcodebuild -project "$PROJ" -scheme "$SCHEME" -configuration Release \
+                 -destination 'generic/platform=macOS' \
+                 -derivedDataPath "$WORK/dd-$mode" "$@" build > "$WORK/xcodebuild-$mode.log" 2>&1; then
+              tail -n 80 "$WORK/xcodebuild-$mode.log"
+              echo "::error::xcodebuild ($mode) failed"
+              return 1
+            fi
+            local app
+            app="$(find "$WORK/dd-$mode/Build/Products/Release" -maxdepth 1 -name '*.app' -print -quit)"
+            if [ -z "$app" ]; then echo "::error::$mode: .app not found"; return 1; fi
+            codesign -dv --verbose=2 "$app" 2>&1 || true
+            for x in "$app"/Contents/PlugIns/*.appex; do
+              codesign -d --entitlements - "$x" 2>&1 || true
+            done
+            ditto -c -k --sequesterRsrc --keepParent "$app" "$WORK/out/ThumbSight-Safari-$VERSION-$mode.zip"
+          }
+          build adhoc    CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+          build unsigned CODE_SIGN_IDENTITY=  CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          # Plain extension folder for Safari's "Add Temporary Extension…" if the .app does not register.
+          ditto -c -k --sequesterRsrc "$WORK/ext" "$WORK/out/ThumbSight-Safari-$VERSION-folder.zip"
+          ls -la "$WORK/out"
+
+      - name: Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thumbsight-safari-${{ env.VERSION }}-${{ github.run_number }}
+          path: |
+            ${{ env.WORK }}/out/*.zip
+            ${{ env.WORK }}/converter.log
+            ${{ env.WORK }}/xcodebuild-*.log
+            ${{ env.WORK }}/ext/manifest.json
+          if-no-files-found: error
+          retention-days: 14
