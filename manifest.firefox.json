@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "2.9.2",
+  "default_locale": "en",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "thumbsight-public@thumbsight.com",
+      "strict_min_version": "154.0"
+    }
+  },
+  "description": "__MSG_extensionDescription__",
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "permissions": ["storage", "identity"],
+  "host_permissions": [
+    "https://tclesjdhmzouzbrdtovm.supabase.co/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://tclesjdhmzouzbrdtovm.supabase.co; img-src 'self' data: https://i.ytimg.com https://i.pinimg.com;"
+  },
+  "action": {
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["config.js", "intent.js", "oauth.js", "background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["intent.js", "i18n.js", "modal.js", "content-channel.js", "content.js"],
+      "css": ["content.css"]
+    },
+    {
+      "matches": ["*://*.pinterest.com/*", "*://*.pinterest.ru/*"],
+      "js": ["intent.js", "i18n.js", "modal.js", "content-pinterest.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "panel.html"],
+      "matches": ["*://*.youtube.com/*", "*://*.pinterest.com/*", "*://*.pinterest.ru/*"]
+    }
+  ]
+}

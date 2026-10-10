@@ -1,0 +1,253 @@
+:root {
+  color-scheme: normal;
+  --bg: #0b0c0f;
+  --surface: #141519;
+  --surface-2: #191a20;
+  --line: #24252c;
+  --text: #e8eaee;
+  --muted: #9297a0;
+  --dim: #666b74;
+  --accent: #2f6fed;
+  --accent-hover: #4a80ff;
+  --ok: #59c2a4;
+  --danger: #e5484d;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: transparent; }
+body { font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--text); }
+
+#tv-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: transparent;
+}
+
+.tv-modal {
+  position: relative;
+  width: min(560px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 16px;
+  background: #1e222c;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, .55);
+  /* Без анимации появления — сознательно (PUB-04, 2.9.2). Пока карточка
+     анимируется (opacity/transform), Chromium держит её с тенью отдельным
+     композитным слоем, и на реальном экране прямоугольник этого слоя
+     (карточка + ~88px тени) проступает на размытом фоне тёмным пятном с
+     резкими краями: с `both` — навсегда, с `backwards` — на время анимации.
+     Через CDP-снимки стендов это не видно. Статичная карточка слоем не
+     становится, шва нет. Сторож — tests/pub02-note-update.test.mjs. */
+}
+@keyframes tv-pop { from { opacity: 0; transform: translateY(10px) scale(.965); } }
+
+.tv-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 12px;
+}
+.tv-brand {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  background: rgba(47, 111, 237, .14);
+  color: #6ea0ff;
+}
+.tv-brand svg { width: 17px; height: 17px; fill: currentColor; }
+.tv-heading { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.tv-heading-canonical { flex-direction: row; align-items: center; gap: 10px; }
+.tv-heading strong { font-size: 15px; font-weight: 700; }
+.tv-heading > span {
+  overflow: hidden;
+  color: var(--dim);
+  font: 11px/1.2 'Geist Mono', ui-monospace, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tv-source-chip { padding: 2px 8px; border-radius: 999px; background: rgba(47,111,237,.16); color: #9dbfff !important; font: 10px/1 'Geist Mono', ui-monospace, monospace !important; letter-spacing: 1px; }
+.tv-lang { position: relative; }
+.tv-lang-button { height: 26px; display: flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 7px; background: rgba(255,255,255,.05); color: #c3c7ce; cursor: pointer; }
+.tv-lang-button:hover { background: rgba(255,255,255,.09); }
+.tv-lang-button svg, .tv-search svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.tv-lang-button span { font: 11px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .6px; }
+.tv-lang-menu { position: absolute; z-index: 6; top: 31px; right: 0; width: 136px; padding: 5px; border-radius: 10px; background: #1e222c; box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), 0 14px 34px rgba(0,0,0,.5); }
+.tv-lang-menu button { width: 100%; height: 30px; display: flex; align-items: center; border: 0; border-radius: 7px; background: transparent; color: #c3c7ce; cursor: pointer; text-align: left; }
+.tv-x {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+}
+.tv-x:hover { background: var(--surface-2); color: var(--text); }
+
+.tv-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+.tv-finish { padding: 4px 4px 10px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.tv-finish-icon { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; background: rgba(89, 194, 164, .14); color: #6bd6b4; }
+.tv-finish-icon::before { content: '✓'; font-size: 24px; font-weight: 700; }
+.tv-finish.tv-error .tv-finish-icon { background: rgba(229, 72, 77, .12); color: #f2555a; }
+.tv-finish.tv-error .tv-finish-icon::before { content: '!'; }
+.tv-finish strong { color: var(--text); font-size: 15px; font-weight: 700; }
+.tv-finish p { max-width: 330px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.tv-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #000; }
+.tv-preview img { display: block; width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+.tv-dup,
+.tv-status {
+  padding: 9px 11px;
+  border: 1px solid rgba(47, 111, 237, .32);
+  border-radius: 9px;
+  background: rgba(47, 111, 237, .09);
+  color: #9dbfff;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.tv-status.tv-ok,
+.tv-dup { border-color: rgba(89, 194, 164, .28); background: rgba(89, 194, 164, .08); color: #6bd6b4; }
+.tv-status.tv-err { border-color: rgba(229, 72, 77, .35); background: rgba(229, 72, 77, .1); color: #f2555a; }
+.tv-label {
+  color: var(--dim);
+  font: 10px/1 'Geist Mono', ui-monospace, monospace;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.tv-editor { display: flex; flex-direction: column; min-height: 190px; }
+.tv-tabs { display: flex; gap: 18px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.tv-tab { height: 36px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7b8492; font: 600 13px/1 'Instrument Sans', system-ui, sans-serif; cursor: pointer; }
+.tv-tab:hover { color: var(--text); }
+.tv-tab.on { color: #e8eaee; border-bottom-color: #6ea0ff; }
+.tv-tab-panel { display: flex; flex: 1; flex-direction: column; gap: 10px; padding-top: 14px; }
+.tv-picker { display: flex; flex: 1; flex-wrap: wrap; align-content: flex-start; gap: 7px; max-height: 176px; overflow-y: auto; }
+.tv-picker.tv-loading,
+.tv-empty { padding: 4px 2px; color: var(--muted); font-size: 13px; }
+.tv-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font: 500 12.5px/1.2 inherit;
+  cursor: pointer;
+}
+.tv-choice:hover { border-color: var(--accent); color: var(--text); }
+.tv-choice.on { border-color: rgba(47, 111, 237, .5); background: rgba(47, 111, 237, .16); color: #9dbfff; }
+.tv-choice-check { width: 0; overflow: hidden; opacity: 0; }
+.tv-choice.on .tv-choice-check { width: 12px; opacity: 1; }
+.tv-search { display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #2e323d; border-radius: 8px; background: #0e1015; color: #7b8492; }
+.tv-search .tv-input { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.tv-field { display: flex; flex-direction: column; gap: 10px; }
+.tv-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 9px 11px;
+  font: 500 12.5px/1.4 'Instrument Sans', system-ui, sans-serif;
+  outline: none;
+}
+.tv-input:focus { border-color: var(--accent); }
+.tv-textarea { min-height: 116px; resize: none; }
+.tv-note-foot { display: flex; justify-content: flex-end; }
+.tv-note-count { color: #6a7280; font: 11px/1 'Geist Mono', ui-monospace, monospace; }
+.tv-note-count.full { color: #f2555a; }
+.tv-add {
+  width: 38px;
+  flex: 0 0 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: #c3c7ce;
+  font-size: 17px;
+  cursor: pointer;
+}
+.tv-add:hover { border-color: var(--accent); color: var(--text); }
+
+.tv-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 18px;
+  border-top: 1px solid rgba(255, 255, 255, .06);
+}
+.tv-action-spacer { flex: 1; }
+.tv-cancel,
+.tv-save,
+.tv-confirm-delete {
+  min-height: 36px;
+  padding: 0 15px;
+  border-radius: 9px;
+  font: 600 12.5px/1 'Instrument Sans', system-ui, sans-serif;
+  cursor: pointer;
+}
+.tv-cancel { border: 1px solid #2a2b32; background: none; color: #c3c7ce; }
+.tv-cancel:hover { border-color: #3a3b42; color: var(--text); }
+.tv-save { border: 0; background: var(--accent); color: #fff; box-shadow: 0 2px 14px rgba(47, 111, 237, .3); }
+.tv-save:hover { background: var(--accent-hover); }
+.tv-save:disabled { background: #2b3a5e; color: #aebfe0; box-shadow: none; cursor: wait; }
+.tv-delete {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(229, 72, 77, .4);
+  border-radius: 9px;
+  background: none;
+  color: var(--danger);
+  cursor: pointer;
+}
+.tv-delete:hover { background: rgba(229, 72, 77, .12); color: #f2555a; }
+
+.tv-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 5, 8, .72);
+  backdrop-filter: blur(6px);
+}
+.tv-confirm-card {
+  width: min(340px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, .09);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+  animation: tv-pop 220ms cubic-bezier(.32, .72, 0, 1) both;
+}
+.tv-danger-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: rgba(229, 72, 77, .12); color: #f2555a; }
+.tv-confirm-card strong { font-size: 14.5px; }
+.tv-confirm-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.tv-confirm-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.tv-confirm-delete { border: 0; background: var(--danger); color: #fff; }
+.tv-confirm-delete:hover { background: #f2555a; }
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible { outline: 2px solid #9dbfff; outline-offset: 2px; }
+.tv-hidden { display: none !important; }

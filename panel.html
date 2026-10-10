@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Thumb Sight</title>
+<link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+<div id="tv-overlay">
+  <div class="tv-modal" role="dialog" aria-modal="true" aria-labelledby="tv-title">
+    <header class="tv-modal-head">
+      <span class="tv-brand tv-hidden" aria-hidden="true">
+        <svg viewBox="0 0 17.32 17.32"><path d="M11.78,7.62c-.19.74-.86,1.29-1.66,1.29-.95,0-1.72-.77-1.72-1.72,0-.79.54-1.46,1.27-1.66-.32-.1-.65-.17-1.01-.17-1.82,0-3.3,1.48-3.3,3.3s1.48,3.3,3.3,3.3,3.3-1.48,3.3-3.3c0-.37-.07-.71-.18-1.04Z"/><path d="M4.14,6.79C4.64,3.73,6.36,1.21,8.65,0c1.01.53,1.91,1.32,2.64,2.29-2.08.3-4.2,1.33-5.94,3.07-.45.45-.86.93-1.21,1.43Zm2.65,6.38C3.73,12.67,1.21,10.95,0,8.66c.53-1.01,1.32-1.91,2.29-2.64.3,2.08,1.33,4.2,3.07,5.94.45.45.93.86,1.43,1.21Zm3.74-9.03c3.06.5,5.58,2.22,6.79,4.51-.53,1.01-1.32,1.91-2.29,2.64-.3-2.08-1.33-4.2-3.07-5.94-.45-.45-.93-.86-1.43-1.21Zm2.64,6.39c-.5,3.06-2.22,5.58-4.51,6.79-1.01-.53-1.91-1.32-2.64-2.29,2.08-.3,4.2-1.33,5.94-3.07.45-.45.86-.93,1.21-1.43Z"/></svg>
+      </span>
+      <span class="tv-heading tv-heading-canonical">
+        <strong id="tv-title" data-i18n="saveTitle">Save to Thumb Sight</strong>
+        <span class="tv-source-chip" id="tv-source">YOUTUBE</span>
+      </span>
+      <button class="tv-x" type="button" id="tv-close" data-i18n-title="close" title="Close" aria-label="Close">✕</button>
+    </header>
+
+    <div class="tv-modal-body">
+      <div class="tv-status tv-hidden" id="tv-note" role="status"></div>
+      <div class="tv-finish tv-hidden" id="tv-finish">
+        <span class="tv-finish-icon" aria-hidden="true"></span>
+        <strong id="tv-finish-title"></strong>
+        <p id="tv-finish-note"></p>
+      </div>
+      <div class="tv-preview tv-hidden" id="tv-preview"><img id="tv-preview-img" alt=""></div>
+      <div class="tv-dup tv-hidden" id="tv-dup" data-i18n="duplicate">Already in your library — you can update folders and the note.</div>
+
+      <div class="tv-editor tv-hidden" id="tv-editor">
+        <div class="tv-tabs" role="tablist">
+          <button class="tv-tab on" type="button" id="tv-tab-folders" role="tab" aria-selected="true" data-i18n="folders">Folders</button>
+          <button class="tv-tab" type="button" id="tv-tab-tags" role="tab" aria-selected="false" data-i18n="tags">Tags</button>
+          <button class="tv-tab" type="button" id="tv-tab-note" role="tab" aria-selected="false" data-i18n="note">Note</button>
+        </div>
+        <section class="tv-tab-panel" id="tv-folders-panel" role="tabpanel">
+          <div class="tv-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="tv-input" type="text" id="tv-new-folder" data-i18n-placeholder="findOrCreateFolder" placeholder="Find or create a folder…" maxlength="80"></div>
+          <button class="tv-hidden" type="button" id="tv-add-folder"></button>
+          <div class="tv-picker tv-loading" id="tv-collections" data-i18n="loadingFolders">Loading folders…</div>
+        </section>
+        <section class="tv-tab-panel tv-hidden" id="tv-tags-panel" role="tabpanel">
+          <div class="tv-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="tv-input" type="text" id="tv-new-tag" data-i18n-placeholder="findOrCreateTag" placeholder="Find or create a tag…" maxlength="80"></div>
+          <button class="tv-hidden" type="button" id="tv-add-tag"></button>
+          <div class="tv-picker tv-loading" id="tv-tags" data-i18n="loadingTags">Loading tags…</div>
+        </section>
+        <section class="tv-tab-panel tv-hidden" id="tv-note-panel" role="tabpanel">
+          <div class="tv-field" id="tv-note-field">
+            <textarea class="tv-input tv-textarea" id="tv-note-input" maxlength="1000" data-i18n-placeholder="notePlaceholder" placeholder="What makes it work…"></textarea>
+            <div class="tv-note-foot"><span class="tv-note-count" id="tv-note-count">0 / 1000</span></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <footer class="tv-actions">
+      <button class="tv-delete tv-hidden" type="button" id="tv-delete" data-i18n-title="remove" title="Remove" aria-label="Remove">⌫</button>
+      <span class="tv-action-spacer"></span>
+      <button class="tv-cancel" type="button" id="tv-cancel" data-i18n="cancel">Cancel</button>
+      <button class="tv-save tv-hidden" type="button" id="tv-save" disabled data-i18n="save">Save</button>
+    </footer>
+  </div>
+</div>
+
+<div class="tv-confirm tv-hidden" id="tv-confirm" role="dialog" aria-modal="true" aria-labelledby="tv-confirm-title">
+  <div class="tv-confirm-card">
+    <span class="tv-danger-icon" aria-hidden="true">⌫</span>
+    <strong id="tv-confirm-title" data-i18n="removeTitle">Remove this thumbnail from Thumb Sight?</strong>
+    <p data-i18n="removeBody">It disappears from your library and every folder. Copies placed on boards stay — remove them on the board itself. This cannot be undone.</p>
+    <div class="tv-confirm-actions">
+      <button class="tv-cancel" type="button" id="tv-confirm-cancel" data-i18n="cancel">Cancel</button>
+      <button class="tv-confirm-delete" type="button" id="tv-confirm-delete" data-i18n="remove">Remove</button>
+    </div>
+  </div>
+</div>
+
+<script src="intent.js"></script>
+<script src="i18n.js"></script>
+<script src="supabase.js"></script>
+<script src="api.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

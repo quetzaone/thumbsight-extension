@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "2.9.2",
+  "version_name": "2.9.2-beta",
+  "minimum_chrome_version": "140",
+  "default_locale": "en",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoYwtuIfJkIvHxvc7pDodiWYVu9KsF8ZYTS0uZIutpiCiPWiZId8Yr1iC7gj9JmdS/iuij0qwQNIGSaxvrsZYdsXhRxTA6YtClvQzZIGLrBUKPoqIkx7AsmYx5duFhS6jcZQI0TbWM7g3wLvW/JgDt3wvmOj/0KHrYf5CFWY8lNsMWNU+21XheX+slO5vDubqgmjSoaXvtDn1eI6Bu5o1u0lqH0jGyEu+zxdHMG11ul/W/OcFWbRFf8StUfJikTQPNDGVmoKllis40BJk/H3vtYcrJmutFDFTH0QwQ00mfkdB7KmmNvOxo8cT+737wHUqImKbLIaY/3Gd1I0GjInRmwIDAQAB",
+  "description": "__MSG_extensionDescription__",
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "permissions": ["storage", "identity"],
+  "host_permissions": [
+    "https://tclesjdhmzouzbrdtovm.supabase.co/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://tclesjdhmzouzbrdtovm.supabase.co; img-src 'self' data: https://i.ytimg.com https://i.pinimg.com;"
+  },
+  "action": {
+    "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["intent.js", "i18n.js", "modal.js", "content-channel.js", "content.js"],
+      "css": ["content.css"]
+    },
+    {
+      "matches": ["*://*.pinterest.com/*", "*://*.pinterest.ru/*"],
+      "js": ["intent.js", "i18n.js", "modal.js", "content-pinterest.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "panel.html"],
+      "matches": ["*://*.youtube.com/*", "*://*.pinterest.com/*", "*://*.pinterest.ru/*"]
+    }
+  ]
+}

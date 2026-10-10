@@ -1,0 +1,30 @@
+{
+  "name": "thumbsight-public-extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Thumb Sight public browser extension: source, tests and source-export tooling",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.15.0"
+  },
+  "scripts": {
+    "test": "node tests/run.mjs internal",
+    "test:public": "node tests/run.mjs public",
+    "check:intent": "node tests/browser-intent.check.mjs",
+    "check:pub01": "node tests/pub01-host-dom.check.mjs",
+    "check:pub02": "node tests/pub02-panel-retry.check.mjs",
+    "check:pub06": "node tests/pub06-snapshot-budget.check.mjs",
+    "check:pub07": "node tests/pub07-storage-barrier.check.mjs",
+    "check:floor": "node tests/pub07-chrome-floor.check.mjs",
+    "check:restart": "node tests/pub07-restart.check.mjs",
+    "check:artifact": "node tests/release-artifact.check.mjs",
+    "export:source": "node tools/export-source.mjs",
+    "verify:sums": "node tools/verify-sums.mjs",
+    "package": "node tools/package-release.mjs"
+  },
+  "devDependencies": {
+    "pixelmatch": "5.3.0",
+    "playwright-core": "1.62.0",
+    "pngjs": "7.0.0"
+  }
+}
